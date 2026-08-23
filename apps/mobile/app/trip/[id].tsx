@@ -12,20 +12,22 @@ export default function TripStatus() {
 
   async function refresh() {
     if (!id) return;
+    const tripId = Array.isArray(id) ? id[0] : id;
     const [{ data: parts }, { data: trip }] = await Promise.all([
-      supabase.from('trip_participants').select('id, is_committed').eq('trip_id', id),
-      supabase.from('trips').select('status').eq('id', id).single(),
+      supabase.from('trip_participants').select('id, is_committed').eq('trip_id', tripId),
+      supabase.from('trips').select('status').eq('id', tripId).single(),
     ]);
     setTotal((parts ?? []).length);
-    setCommitted(countCommitted((parts ?? []).map((p) => ({ isCommitted: p.is_committed }))));
+    setCommitted(countCommitted((parts ?? []).map((p: any) => ({ isCommitted: p.is_committed }))));
     if (trip) setStatus(trip.status);
   }
 
   useEffect(() => {
     void refresh();
     if (!id) return;
+    const tripId = Array.isArray(id) ? id[0] : id;
     const channel = supabase
-      .channel(`trip-mobile:${id}`)
+      .channel(`trip-mobile:${tripId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'trip_participants' }, () =>
         void refresh(),
       )
