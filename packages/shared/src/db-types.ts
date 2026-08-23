@@ -134,8 +134,8 @@ export interface Database {
         Row: {
           id: string;
           trip_id: string;
-          start_date: string; // YYYY-MM-DD
-          end_date: string; // YYYY-MM-DD
+          start_date: string;
+          end_date: string;
         };
         Insert: {
           trip_id: string;
@@ -168,42 +168,23 @@ export interface Database {
       };
     };
 
-    Views: {};
+    Views: Record<string, never>;
 
     Functions: {
       join_trip_via_token: {
-        Args: {
-          p_token: string;
-          p_display_name: string;
-        };
-        Returns: Array<{
-          trip_id: string;
-          participant_id: string;
-        }>;
+        Args: Record<string, unknown>;
+        Returns: Array<{ trip_id: string; participant_id: string }>;
       };
-
       set_availability: {
-        Args: {
-          p_participant_id: string;
-          p_date_option_id: string;
-          p_availability: 'yes' | 'maybe' | 'no';
-        };
+        Args: Record<string, unknown>;
         Returns: null;
       };
-
       set_commitment: {
-        Args: {
-          p_participant_id: string;
-          p_is_committed: boolean;
-        };
+        Args: Record<string, unknown>;
         Returns: null;
       };
-
       lock_trip: {
-        Args: {
-          p_trip_id: string;
-          p_date_option_id: string;
-        };
+        Args: Record<string, unknown>;
         Returns: null;
       };
     };

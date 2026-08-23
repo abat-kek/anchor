@@ -7,20 +7,18 @@ export default function TabOneScreen() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    supabase
-      .from('groups')
-      .select('id')
-      .limit(1)
-      .then(({ error: err }) => {
+    (async () => {
+      try {
+        const { error: err } = await supabase.from('groups').select('id').limit(1);
         if (err) {
           setError(err.message);
         } else {
           setStatus('OK');
         }
-      })
-      .catch((err) => {
-        setError(err instanceof Error ? err.message : String(err));
-      });
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    })();
   }, []);
 
   return (
