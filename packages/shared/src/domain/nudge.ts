@@ -19,17 +19,20 @@ export function canSendNudge(input: NudgeInput): boolean {
 
   // Rule 1: Check minGap since last nudge
   if (history.length > 0) {
-    const lastNudgeTime = new Date(history[history.length - 1].sentAt).getTime();
-    const timeSinceLast = nowTime - lastNudgeTime;
-    if (timeSinceLast < minGapMs) {
-      return false;
+    const lastEntry = history[history.length - 1];
+    if (lastEntry) {
+      const lastNudgeTime = new Date(lastEntry.sentAt).getTime();
+      const timeSinceLast = nowTime - lastNudgeTime;
+      if (timeSinceLast < minGapMs) {
+        return false;
+      }
     }
   }
 
   // Rule 2: Check maxPerWeek within last 7 days
   const recentNudges = history.filter((entry) => {
     const entryTime = new Date(entry.sentAt).getTime();
-    return entryTime >= weekAgoTime;
+    return !isNaN(entryTime) && entryTime >= weekAgoTime;
   });
 
   if (recentNudges.length >= maxPerWeek) {

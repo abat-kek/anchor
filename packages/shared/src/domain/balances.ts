@@ -20,18 +20,24 @@ export function computeBalances(
 
   // Sum expenses paid by each participant
   expenses.forEach((exp) => {
-    if (!balances[exp.payerParticipantId]) {
+    if (!(exp.payerParticipantId in balances)) {
       balances[exp.payerParticipantId] = 0;
     }
-    balances[exp.payerParticipantId] += exp.amountCents;
+    const bal = balances[exp.payerParticipantId];
+    if (bal !== undefined) {
+      balances[exp.payerParticipantId] = bal + exp.amountCents;
+    }
   });
 
   // Subtract shares owed by each participant
   splits.forEach((split) => {
-    if (!balances[split.participantId]) {
+    if (!(split.participantId in balances)) {
       balances[split.participantId] = 0;
     }
-    balances[split.participantId] -= split.shareCents;
+    const bal = balances[split.participantId];
+    if (bal !== undefined) {
+      balances[split.participantId] = bal - split.shareCents;
+    }
   });
 
   return Object.entries(balances).map(([participantId, netCents]) => ({
@@ -63,23 +69,31 @@ export function simplifyDebts(balances: Balance[]): Settlement[] {
   while (working.length > 0) {
     // Find the debtor with the most negative balance
     let debtorIndex = 0;
+    let debtor = working[0];
+    if (!debtor) break;
+
     for (let i = 1; i < working.length; i++) {
-      if (working[i].netCents < working[debtorIndex].netCents) {
+      const current = working[i];
+      if (current && current.netCents < debtor.netCents) {
         debtorIndex = i;
+        debtor = current;
       }
     }
-    const debtor = working[debtorIndex];
 
     // Find the creditor with the most positive balance
     let creditorIndex = 0;
+    let creditor = working[0];
+    if (!creditor) break;
+
     for (let i = 1; i < working.length; i++) {
-      if (working[i].netCents > working[creditorIndex].netCents) {
+      const current = working[i];
+      if (current && current.netCents > creditor.netCents) {
         creditorIndex = i;
+        creditor = current;
       }
     }
-    const creditor = working[creditorIndex];
 
-    if (creditor.netCents <= 0) {
+    if (!creditor || creditor.netCents <= 0) {
       // No creditors left, we're done
       break;
     }

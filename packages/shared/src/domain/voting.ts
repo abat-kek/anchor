@@ -14,13 +14,16 @@ export function tallyVotes(
 
   votes.forEach((vote) => {
     if (vote.optionId in counts) {
-      counts[vote.optionId]++;
+      const c = counts[vote.optionId];
+      if (c !== undefined) {
+        counts[vote.optionId] = c + 1;
+      }
     }
   });
 
   return optionIds.map((optionId) => ({
     optionId,
-    count: counts[optionId],
+    count: counts[optionId] ?? 0,
   }));
 }
 
