@@ -1,50 +1,56 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { supabase } from '../../src/lib/supabase';
-import { countCommitted } from '@anchor/shared';
+import { getParticipant } from '../../src/lib/participant-store';
+
+const POLL_MS = 4000;
+
+interface TripState {
+  trip: { status: string } | null;
+  total_participants: number;
+  committed_count: number;
+  locked_option: { start_date: string; end_date: string } | null;
+}
 
 export default function TripStatus() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const [committed, setCommitted] = useState(0);
-  const [total, setTotal] = useState(0);
-  const [status, setStatus] = useState('collecting');
+  const tripId = Array.isArray(id) ? id[0] : id;
+  const [state, setState] = useState<TripState | null>(null);
 
-  async function refresh() {
-    if (!id) return;
-    const tripId = Array.isArray(id) ? id[0] : id;
-    const [{ data: parts }, { data: trip }] = await Promise.all([
-      supabase.from('trip_participants').select('id, is_committed').eq('trip_id', tripId),
-      supabase.from('trips').select('status').eq('id', tripId).single(),
-    ]);
-    setTotal((parts ?? []).length);
-    setCommitted(countCommitted((parts ?? []).map((p: any) => ({ isCommitted: p.is_committed }))));
-    if (trip) setStatus(trip.status);
-  }
+  const refresh = useCallback(async (pid: string) => {
+    const { data } = await supabase.rpc('get_trip_state', { p_participant_id: pid });
+    if (data) setState(data as unknown as TripState);
+  }, []);
 
   useEffect(() => {
-    void refresh();
-    if (!id) return;
-    const tripId = Array.isArray(id) ? id[0] : id;
-    const channel = supabase
-      .channel(`trip-mobile:${tripId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'trip_participants' }, () =>
-        void refresh(),
-      )
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'trips' }, () => void refresh())
-      .subscribe();
+    if (!tripId) return;
+    let timer: ReturnType<typeof setInterval> | undefined;
+    void (async () => {
+      const pid = await getParticipant(tripId);
+      if (!pid) return;
+      void refresh(pid);
+      timer = setInterval(() => void refresh(pid), POLL_MS);
+    })();
     return () => {
-      void supabase.removeChannel(channel);
+      if (timer) clearInterval(timer);
     };
-  }, [id]);
+  }, [tripId, refresh]);
+
+  const status = state?.trip?.status ?? 'collecting';
 
   return (
     <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
       {status === 'locked' ? (
-        <Text style={{ fontSize: 22, fontWeight: '700' }}>🎉 Termin steht!</Text>
+        <Text style={{ fontSize: 22, fontWeight: '700' }}>
+          🎉 Termin steht!
+          {state?.locked_option
+            ? ` ${state.locked_option.start_date} – ${state.locked_option.end_date}`
+            : ''}
+        </Text>
       ) : (
         <Text style={{ fontSize: 22, fontWeight: '700' }}>
-          {committed}/{total} dabei
+          {state?.committed_count ?? 0}/{state?.total_participants ?? 0} dabei
         </Text>
       )}
     </View>

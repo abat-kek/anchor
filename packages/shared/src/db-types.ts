@@ -186,6 +186,27 @@ export interface Database {
         Args: { p_trip_id: string; p_date_option_id: string };
         Returns: null;
       };
+      create_trip: {
+        Args: {
+          p_title: string;
+          p_destination: string | null;
+          p_deadline: string;
+          p_date_options: Json;
+        };
+        Returns: Array<{ trip_id: string; share_token: string; participant_id: string }>;
+      };
+      get_trip_state: {
+        Args: { p_participant_id: string };
+        Returns: Json;
+      };
+      get_trip_public: {
+        Args: { p_token: string };
+        Returns: Json;
+      };
+      run_auto_lock: {
+        Args: Record<string, never>;
+        Returns: number;
+      };
     };
     Enums: {
       availability: 'yes' | 'maybe' | 'no';

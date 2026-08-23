@@ -1,49 +1,41 @@
 import { useState } from 'react';
 import { Alert, Button, Share, Text, TextInput, View } from 'react-native';
+import { useRouter } from 'expo-router';
 import { supabase } from '../../lib/supabase';
+import { saveParticipant } from '../../lib/participant-store';
+
+const WEB_BASE = process.env.EXPO_PUBLIC_WEB_BASE_URL ?? 'https://anchor.kek95.duckdns.org';
 
 export function CreateTripScreen() {
+  const router = useRouter();
   const [title, setTitle] = useState('');
   const [shareToken, setShareToken] = useState<string | null>(null);
 
   async function createTrip() {
-    const { data: group, error: gErr } = await supabase
-      .from('groups')
-      .insert({ name: `${title}-Crew` })
-      .select('id')
-      .single();
-    if (gErr || !group) {
-      Alert.alert('Fehler', gErr?.message ?? 'Gruppe');
-      return;
-    }
-
     const deadline = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
-    const { data: trip, error: tErr } = await supabase
-      .from('trips')
-      .insert({ group_id: group.id, title, deadline })
-      .select('id, share_token')
-      .single();
-    if (tErr || !trip) {
-      Alert.alert('Fehler', tErr?.message ?? 'Trip');
+    const { data, error } = await supabase.rpc('create_trip', {
+      p_title: title.trim(),
+      p_destination: null,
+      p_deadline: deadline,
+      p_date_options: [
+        { start_date: '2026-03-14', end_date: '2026-03-16' },
+        { start_date: '2026-03-21', end_date: '2026-03-23' },
+      ],
+    });
+
+    const row = Array.isArray(data) ? data[0] : null;
+    if (error || !row) {
+      Alert.alert('Fehler', error?.message ?? 'Trip konnte nicht angelegt werden');
       return;
     }
-
-    const { error: optErr } = await supabase.from('trip_date_options').insert([
-      { trip_id: trip.id, start_date: '2026-03-14', end_date: '2026-03-16' },
-      { trip_id: trip.id, start_date: '2026-03-21', end_date: '2026-03-23' },
-    ]);
-
-    if (optErr) {
-      Alert.alert('Fehler', optErr.message);
-      return;
-    }
-
-    setShareToken(trip.share_token);
+    await saveParticipant(row.trip_id, row.participant_id);
+    setShareToken(row.share_token);
+    router.push(`/trip/${row.trip_id}`);
   }
 
   async function shareLink() {
     if (!shareToken) return;
-    const url = `https://anchor.app/join/${encodeURIComponent(shareToken)}`;
+    const url = `${WEB_BASE}/join/${encodeURIComponent(shareToken)}`;
     await Share.share({ message: `Bist du dabei? ${url}` });
   }
 

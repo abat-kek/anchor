@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { getParticipant } from '@/lib/participant-store';
-import { countCommitted, type Availability } from '@anchor/shared';
+import type { Availability } from '@anchor/shared';
 
 interface OptionRow {
   id: string;
@@ -12,83 +12,116 @@ interface OptionRow {
   end_date: string;
 }
 
+interface TripState {
+  trip: {
+    id: string;
+    title: string;
+    status: string;
+    deadline: string;
+    locked_date_option_id: string | null;
+  } | null;
+  options: OptionRow[];
+  total_participants: number;
+  committed_count: number;
+  me: {
+    is_committed: boolean;
+    availabilities: { date_option_id: string; availability: Availability }[];
+  } | null;
+  locked_option: { start_date: string; end_date: string } | null;
+}
+
+const POLL_MS = 4000;
+
 export default function TripPage() {
   const { id: tripId } = useParams<{ id: string }>();
   const [participantId, setParticipantId] = useState<string | null>(null);
-  const [options, setOptions] = useState<OptionRow[]>([]);
-  const [committedCount, setCommittedCount] = useState(0);
-  const [totalCount, setTotalCount] = useState(0);
-  const [status, setStatus] = useState<string>('collecting');
-  const [myAvail, setMyAvail] = useState<Record<string, Availability>>({});
-  const [amCommitted, setAmCommitted] = useState(false);
+  const [state, setState] = useState<TripState | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
-    const [{ data: opts }, { data: parts }, { data: trip }] = await Promise.all([
-      supabase
-        .from('trip_date_options')
-        .select('id, start_date, end_date')
-        .eq('trip_id', tripId)
-        .order('start_date'),
-      supabase.from('trip_participants').select('id, is_committed').eq('trip_id', tripId),
-      supabase.from('trips').select('status').eq('id', tripId).single(),
-    ]);
-    setOptions(opts ?? []);
-    setTotalCount((parts ?? []).length);
-    setCommittedCount(
-      countCommitted((parts ?? []).map((p: any) => ({ isCommitted: p.is_committed })))
-    );
-    if (trip) setStatus(trip.status);
-    const me = (parts ?? []).find((p: any) => p.id === participantId);
-    if (me) setAmCommitted(me.is_committed);
-  }, [tripId, participantId]);
+  const refresh = useCallback(async (pid: string) => {
+    const { data, error } = await supabase.rpc('get_trip_state', { p_participant_id: pid });
+    if (error) {
+      setError(error.message);
+      return;
+    }
+    setState(data as unknown as TripState);
+  }, []);
 
   useEffect(() => {
     setParticipantId(getParticipant(tripId));
   }, [tripId]);
 
   useEffect(() => {
-    void refresh();
-    const channel = supabase
-      .channel(`trip:${tripId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'trip_participants' }, () => void refresh())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'trips' }, () => void refresh())
-      .subscribe();
-    return () => {
-      void supabase.removeChannel(channel);
-    };
-  }, [tripId, refresh]);
+    if (!participantId) return;
+    void refresh(participantId);
+    const timer = setInterval(() => void refresh(participantId), POLL_MS);
+    return () => clearInterval(timer);
+  }, [participantId, refresh]);
 
   async function setAvailability(optionId: string, availability: Availability) {
     if (!participantId) return;
-    setMyAvail((prev) => ({ ...prev, [optionId]: availability }));
     await supabase.rpc('set_availability', {
       p_participant_id: participantId,
       p_date_option_id: optionId,
       p_availability: availability,
     });
+    void refresh(participantId);
   }
 
   async function toggleCommit() {
-    if (!participantId) return;
-    const next = !amCommitted;
-    setAmCommitted(next);
-    await supabase.rpc('set_commitment', { p_participant_id: participantId, p_is_committed: next });
-    await refresh();
+    if (!participantId || !state?.me) return;
+    await supabase.rpc('set_commitment', {
+      p_participant_id: participantId,
+      p_is_committed: !state.me.is_committed,
+    });
+    void refresh(participantId);
   }
 
+  const wrap = { padding: 24, maxWidth: 480, margin: '0 auto', fontFamily: 'system-ui' } as const;
+
+  if (!participantId) {
+    return (
+      <main style={wrap}>
+        <h1>Der Trip</h1>
+        <p>Kein Teilnehmer gefunden — bitte über den Einladungslink beitreten.</p>
+      </main>
+    );
+  }
+
+  if (error) {
+    return (
+      <main style={wrap}>
+        <h1>Der Trip</h1>
+        <p style={{ color: 'crimson' }}>Fehler: {error}</p>
+      </main>
+    );
+  }
+
+  const status = state?.trip?.status ?? 'collecting';
+  const myAvail = new Map(
+    (state?.me?.availabilities ?? []).map((a) => [a.date_option_id, a.availability]),
+  );
+  const isLocked = status === 'locked';
+
   return (
-    <main style={{ padding: 24, maxWidth: 480, margin: '0 auto', fontFamily: 'system-ui' }}>
-      <h1>Der Trip</h1>
-      {status === 'locked' ? (
-        <p style={{ fontWeight: 700, fontSize: 18 }}>🎉 Termin steht fest!</p>
+    <main style={wrap}>
+      <h1>{state?.trip?.title ?? 'Der Trip'}</h1>
+
+      {isLocked ? (
+        <p style={{ fontWeight: 700, fontSize: 18 }}>
+          🎉 Termin steht fest!
+          {state?.locked_option
+            ? ` ${state.locked_option.start_date} – ${state.locked_option.end_date}`
+            : ''}
+        </p>
       ) : (
         <p style={{ fontSize: 20, fontWeight: 700 }}>
-          {committedCount}/{totalCount} dabei
+          {state?.committed_count ?? 0}/{state?.total_participants ?? 0} dabei
         </p>
       )}
 
       <h2>Wann kannst du?</h2>
-      {options.map((o) => (
+      {(state?.options ?? []).map((o) => (
         <div key={o.id} style={{ marginBottom: 12 }}>
           <div style={{ marginBottom: 8 }}>
             {o.start_date} – {o.end_date}
@@ -97,11 +130,13 @@ export default function TripPage() {
             <button
               key={a}
               onClick={() => setAvailability(o.id, a)}
+              disabled={isLocked}
               style={{
                 marginRight: 8,
                 padding: 8,
-                fontWeight: myAvail[o.id] === a ? 700 : 400,
                 marginBottom: 4,
+                fontWeight: myAvail.get(o.id) === a ? 700 : 400,
+                cursor: isLocked ? 'default' : 'pointer',
               }}
             >
               {a === 'yes' ? '✅ Ja' : a === 'maybe' ? '🤔 Vielleicht' : '❌ Nein'}
@@ -110,18 +145,12 @@ export default function TripPage() {
         </div>
       ))}
 
-      {status !== 'locked' && (
+      {!isLocked && (
         <button
           onClick={toggleCommit}
-          style={{
-            padding: 12,
-            width: '100%',
-            marginTop: 16,
-            fontSize: 16,
-            cursor: 'pointer',
-          }}
+          style={{ padding: 12, width: '100%', marginTop: 16, fontSize: 16, cursor: 'pointer' }}
         >
-          {amCommitted ? 'Zusage zurückziehen' : 'Ich bin dabei 🙌'}
+          {state?.me?.is_committed ? 'Zusage zurückziehen' : 'Ich bin dabei 🙌'}
         </button>
       )}
     </main>
