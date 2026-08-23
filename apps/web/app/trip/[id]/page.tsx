@@ -34,9 +34,11 @@ export default function TripPage() {
     ]);
     setOptions(opts ?? []);
     setTotalCount((parts ?? []).length);
-    setCommittedCount(countCommitted((parts ?? []).map((p) => ({ isCommitted: p.is_committed }))));
+    setCommittedCount(
+      countCommitted((parts ?? []).map((p: any) => ({ isCommitted: p.is_committed })))
+    );
     if (trip) setStatus(trip.status);
-    const me = (parts ?? []).find((p) => p.id === participantId);
+    const me = (parts ?? []).find((p: any) => p.id === participantId);
     if (me) setAmCommitted(me.is_committed);
   }, [tripId, participantId]);
 
