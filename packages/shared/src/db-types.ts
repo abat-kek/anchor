@@ -1,10 +1,13 @@
 /**
  * HANDGESCHRIEBEN — regenerieren via `supabase gen types --local`, sobald Docker läuft.
  *
- * Slice 1 Schema für Anchor: profiles, groups, link_guests, trips, trip_participants,
- * trip_date_options, date_availabilities + RPCs (join_trip_via_token, set_availability,
- * set_commitment, lock_trip).
+ * Slice 1 Schema: profiles, groups, link_guests, trips, trip_participants,
+ * trip_date_options, date_availabilities + RPCs
+ *
+ * Note: Use `as unknown as Database` workaround in client until proper generation.
  */
+
+export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
 export interface Database {
   public: {
@@ -27,7 +30,6 @@ export interface Database {
           push_token?: string | null;
         };
       };
-
       groups: {
         Row: {
           id: string;
@@ -49,7 +51,6 @@ export interface Database {
           last_activity_at?: string;
         };
       };
-
       link_guests: {
         Row: {
           id: string;
@@ -72,7 +73,6 @@ export interface Database {
           converted_user_id?: string | null;
         };
       };
-
       trips: {
         Row: {
           id: string;
@@ -105,7 +105,6 @@ export interface Database {
           locked_date_option_id?: string | null;
         };
       };
-
       trip_participants: {
         Row: {
           id: string;
@@ -129,7 +128,6 @@ export interface Database {
           is_committed?: boolean;
         };
       };
-
       trip_date_options: {
         Row: {
           id: string;
@@ -147,7 +145,6 @@ export interface Database {
           end_date?: string;
         };
       };
-
       date_availabilities: {
         Row: {
           id: string;
@@ -167,28 +164,29 @@ export interface Database {
         };
       };
     };
-
-    Views: Record<string, never>;
-
+    Views: {};
     Functions: {
       join_trip_via_token: {
-        Args: Record<string, unknown>;
+        Args: { p_token: string; p_display_name: string };
         Returns: Array<{ trip_id: string; participant_id: string }>;
       };
       set_availability: {
-        Args: Record<string, unknown>;
+        Args: {
+          p_participant_id: string;
+          p_date_option_id: string;
+          p_availability: 'yes' | 'maybe' | 'no';
+        };
         Returns: null;
       };
       set_commitment: {
-        Args: Record<string, unknown>;
+        Args: { p_participant_id: string; p_is_committed: boolean };
         Returns: null;
       };
       lock_trip: {
-        Args: Record<string, unknown>;
+        Args: { p_trip_id: string; p_date_option_id: string };
         Returns: null;
       };
     };
-
     Enums: {
       availability: 'yes' | 'maybe' | 'no';
       trip_status: 'draft' | 'collecting' | 'locked' | 'accommodation' | 'active' | 'done';
