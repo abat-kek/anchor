@@ -3,9 +3,9 @@
   "compilerOptions": {
     "strict": true,
     "paths": {
-      "@/*": [
-        "./*"
-      ]
+      "@/*": ["./*"],
+      "@anchor/shared": ["../../packages/shared/src/index.ts"],
+      "@anchor/shared/*": ["../../packages/shared/src/*"]
     }
   },
   "include": [
