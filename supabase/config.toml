@@ -1,0 +1,55 @@
+# Supabase Config — Local Development
+
+[project]
+project_id = "anchor"
+account_id = ""
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+major_version = 15
+pooler_mode = "transaction"
+pooler_max_client_conn = 100
+pooler_default_pool_size = 25
+pooler_reserved_pool_size = 1
+
+[realtime]
+enabled = true
+max_bytes_per_second = 1048576
+max_connections = 500
+max_events_per_second = 1000
+max_joins_per_second = 100
+max_presence_events_per_second = 100
+max_presence_join_events_per_second = 100
+
+[auth]
+enabled = true
+site_url = "http://127.0.0.1:3000"
+additional_redirect_urls = ["http://127.0.0.1:3000/auth/callback"]
+jwt_expiry = 3600
+refresh_token_rotation_enabled = true
+refresh_token_reuse_interval = 10
+enable_signup = true
+enable_anonymous_signin = false
+minimum_password_length = 6
+
+[edge_runtime]
+enabled = true
+policy = "per_worker"
+
+[vector]
+enabled = false
+
+[function_backend]
+enabled = true
+max_size = 52428800
+
+[observability]
+enabled = true
+log_level = "info"

@@ -1,0 +1,6 @@
+{
+  "imports": {
+    "@anchor/domain/": "../../packages/shared/src/domain/",
+    "@anchor/types": "../../packages/shared/src/types.ts"
+  }
+}
