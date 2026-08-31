@@ -139,7 +139,7 @@ export default function TripStatus() {
               return (
                 <Pressable
                   key={a}
-                  style={[styles.availButton, isSelected && styles.availButtonSelected]}
+                  style={[styles.availButton, isSelected && styles.availButtonSelected, isLocked && styles.availButtonDisabled]}
                   onPress={() => setAvailability(option.id, a)}
                   disabled={isLocked}
                 >
@@ -183,6 +183,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#17171d',
   },
   availButtonSelected: { borderColor: '#2f6fed', backgroundColor: '#1c2b4d' },
+  availButtonDisabled: { opacity: 0.5 },
   availButtonText: { color: '#fff', fontSize: 14 },
   commitButton: {
     backgroundColor: '#2f6fed',
