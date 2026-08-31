@@ -13,5 +13,8 @@ export async function getParticipant(tripId: string): Promise<string | null> {
 
 export async function listTripIds(): Promise<string[]> {
   const keys = await AsyncStorage.getAllKeys();
-  return keys.filter((k) => k.startsWith(PREFIX)).map((k) => k.slice(PREFIX.length));
+  return keys
+    .filter((k) => k.startsWith(PREFIX))
+    .map((k) => k.slice(PREFIX.length))
+    .filter((tripId) => tripId.length > 0);
 }
