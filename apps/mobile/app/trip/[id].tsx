@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { supabase } from '../../src/lib/supabase';
 import { getParticipant } from '../../src/lib/participant-store';
@@ -17,10 +17,16 @@ export default function TripStatus() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const tripId = Array.isArray(id) ? id[0] : id;
   const [state, setState] = useState<TripState | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const refresh = useCallback(async (pid: string) => {
-    const { data } = await supabase.rpc('get_trip_state', { p_participant_id: pid });
-    if (data) setState(data as unknown as TripState);
+    const { data, error } = await supabase.rpc('get_trip_state', { p_participant_id: pid });
+    if (error) {
+      setErrorMessage(error.message);
+      return;
+    }
+    setErrorMessage(null);
+    setState(data as unknown as TripState);
   }, []);
 
   useEffect(() => {
@@ -28,7 +34,10 @@ export default function TripStatus() {
     let timer: ReturnType<typeof setInterval> | undefined;
     void (async () => {
       const pid = await getParticipant(tripId);
-      if (!pid) return;
+      if (!pid) {
+        setErrorMessage('Kein Teilnehmer gefunden.');
+        return;
+      }
       void refresh(pid);
       timer = setInterval(() => void refresh(pid), POLL_MS);
     })();
@@ -37,22 +46,44 @@ export default function TripStatus() {
     };
   }, [tripId, refresh]);
 
-  const status = state?.trip?.status ?? 'collecting';
+  if (errorMessage) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.error}>Fehler: {errorMessage}</Text>
+      </View>
+    );
+  }
+
+  if (!state) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.text}>Lädt…</Text>
+      </View>
+    );
+  }
+
+  const status = state.trip?.status ?? 'collecting';
 
   return (
-    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+    <View style={styles.container}>
       {status === 'locked' ? (
-        <Text style={{ fontSize: 22, fontWeight: '700' }}>
+        <Text style={styles.text}>
           🎉 Termin steht!
-          {state?.locked_option
+          {state.locked_option
             ? ` ${state.locked_option.start_date} – ${state.locked_option.end_date}`
             : ''}
         </Text>
       ) : (
-        <Text style={{ fontSize: 22, fontWeight: '700' }}>
-          {state?.committed_count ?? 0}/{state?.total_participants ?? 0} dabei
+        <Text style={styles.text}>
+          {state.committed_count}/{state.total_participants} dabei
         </Text>
       )}
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0b0b0f' },
+  text: { fontSize: 22, fontWeight: '700', color: '#fff' },
+  error: { fontSize: 16, color: '#ff6b6b', padding: 24, textAlign: 'center' },
+});

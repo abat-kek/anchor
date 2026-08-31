@@ -1,8 +1,7 @@
-import { Pressable, StyleSheet } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Text, View } from '@/components/Themed';
 
-export default function TabOneScreen() {
+export default function HomeScreen() {
   const router = useRouter();
 
   return (
@@ -17,9 +16,16 @@ export default function TabOneScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 12 },
-  logo: { fontSize: 28, fontWeight: '800' },
-  tagline: { fontSize: 16, opacity: 0.7, marginBottom: 12, textAlign: 'center' },
+  container: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+    gap: 12,
+    backgroundColor: '#0b0b0f',
+  },
+  logo: { fontSize: 28, fontWeight: '800', color: '#fff' },
+  tagline: { fontSize: 16, opacity: 0.7, marginBottom: 12, textAlign: 'center', color: '#fff' },
   button: { backgroundColor: '#2f6fed', paddingHorizontal: 24, paddingVertical: 14, borderRadius: 12 },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
 });
