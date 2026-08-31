@@ -23,34 +23,43 @@ export default function HomeScreen() {
   const [trips, setTrips] = useState<TripSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  const loadTrips = useCallback(async () => {
-    setIsLoading(true);
-    const tripIds = await listTripIds();
-    const summaries: TripSummary[] = [];
-    for (const tripId of tripIds) {
-      const participantId = await getParticipant(tripId);
-      if (!participantId) continue;
-      const { data, error } = await supabase.rpc('get_trip_state', {
-        p_participant_id: participantId,
-      });
-      if (error || !data) continue;
-      const response = data as unknown as TripStateResponse;
-      if (!response.trip) continue;
-      summaries.push({
-        id: response.trip.id,
-        title: response.trip.title,
-        status: response.trip.status,
-        committedCount: response.committed_count,
-        totalParticipants: response.total_participants,
-      });
+  const loadTrips = useCallback(async (isActive: () => boolean) => {
+    try {
+      setIsLoading(true);
+      const tripIds = await listTripIds();
+      const summaries: TripSummary[] = [];
+      for (const tripId of tripIds) {
+        const participantId = await getParticipant(tripId);
+        if (!participantId) continue;
+        const { data, error } = await supabase.rpc('get_trip_state', {
+          p_participant_id: participantId,
+        });
+        if (error || !data) continue;
+        const response = data as unknown as TripStateResponse;
+        if (!response.trip) continue;
+        summaries.push({
+          id: response.trip.id,
+          title: response.trip.title,
+          status: response.trip.status,
+          committedCount: response.committed_count,
+          totalParticipants: response.total_participants,
+        });
+      }
+      if (isActive()) setTrips(summaries);
+    } catch (error) {
+      // Handle errors gracefully; leave spinner state managed by finally
+    } finally {
+      if (isActive()) setIsLoading(false);
     }
-    setTrips(summaries);
-    setIsLoading(false);
   }, []);
 
   useFocusEffect(
     useCallback(() => {
-      void loadTrips();
+      let isActive = true;
+      void loadTrips(() => isActive);
+      return () => {
+        isActive = false;
+      };
     }, [loadTrips]),
   );
 
@@ -80,7 +89,7 @@ export default function HomeScreen() {
       )}
 
       <Pressable style={styles.button} onPress={() => router.push('/create')}>
-        <Text style={styles.buttonText}>Neuer Trip anlegen</Text>
+        <Text style={styles.buttonText}>Neuen Trip anlegen</Text>
       </Pressable>
     </View>
   );
