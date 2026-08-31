@@ -33,6 +33,7 @@ export default function RootLayout() {
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="create" options={{ title: 'Neuer Trip' }} />
         <Stack.Screen name="trip/[id]" options={{ title: 'Trip-Status' }} />
+        <Stack.Screen name="join/[token]" options={{ title: 'Einladung' }} />
       </Stack>
     </ThemeProvider>
   );
