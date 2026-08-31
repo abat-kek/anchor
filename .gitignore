@@ -8,3 +8,5 @@ dist/
 .env.local
 supabase/.branches/
 supabase/.temp/
+.claude/worktrees/
+.superpowers/
