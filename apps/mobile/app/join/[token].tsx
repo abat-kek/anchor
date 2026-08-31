@@ -23,24 +23,30 @@ export default function JoinScreen() {
     setIsSubmitting(true);
     setErrorMessage(null);
 
-    const { data, error } = await supabase.rpc('join_trip_via_token', {
-      p_token: token,
-      p_display_name: name.trim(),
-    });
+    try {
+      const { data, error } = await supabase.rpc('join_trip_via_token', {
+        p_token: token,
+        p_display_name: name.trim(),
+      });
 
-    setIsSubmitting(false);
-    const row = Array.isArray(data) ? data[0] : null;
-    if (error) {
-      setErrorMessage(`Netzwerk-/Serverfehler: ${error.message}`);
-      return;
-    }
-    if (!row) {
-      setErrorMessage('Link ungültig oder Trip nicht gefunden.');
-      return;
-    }
+      const row = Array.isArray(data) ? data[0] : null;
+      if (error) {
+        setErrorMessage(`Netzwerk-/Serverfehler: ${error.message}`);
+        return;
+      }
+      if (!row) {
+        setErrorMessage('Link ungültig oder Trip nicht gefunden.');
+        return;
+      }
 
-    await saveParticipant(row.trip_id, row.participant_id);
-    router.replace(`/trip/${row.trip_id}`);
+      await saveParticipant(row.trip_id, row.participant_id);
+      router.replace(`/trip/${row.trip_id}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unbekannter Fehler';
+      setErrorMessage(`Fehler beim Speichern: ${message}`);
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   const isDisabled = !name.trim() || isSubmitting || !token;
