@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "de.anchor.app",
+      "sha256_cert_fingerprints": [
+        "5B:B8:11:DA:8D:01:4F:0C:2C:F4:0E:4E:A2:C6:1D:C5:AA:64:24:C7:3A:F8:37:51:B5:52:B4:AF:0D:4A:8D:7F"
+      ]
+    }
+  }
+]
