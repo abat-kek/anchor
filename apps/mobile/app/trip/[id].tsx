@@ -32,6 +32,7 @@ export default function TripStatus() {
   const [state, setState] = useState<TripState | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const refresh = useCallback(async (pid: string) => {
     const { data, error } = await supabase.rpc('get_trip_state', { p_participant_id: pid });
@@ -64,30 +65,40 @@ export default function TripStatus() {
   async function setAvailability(optionId: string, availability: Availability) {
     if (!participantId) return;
     setActionError(null);
-    const { error } = await supabase.rpc('set_availability', {
-      p_participant_id: participantId,
-      p_date_option_id: optionId,
-      p_availability: availability,
-    });
-    if (error) {
-      setActionError(error.message);
-      return;
+    setIsSubmitting(true);
+    try {
+      const { error } = await supabase.rpc('set_availability', {
+        p_participant_id: participantId,
+        p_date_option_id: optionId,
+        p_availability: availability,
+      });
+      if (error) {
+        setActionError(error.message);
+        return;
+      }
+      void refresh(participantId);
+    } finally {
+      setIsSubmitting(false);
     }
-    void refresh(participantId);
   }
 
   async function toggleCommit() {
     if (!participantId || !state?.me) return;
     setActionError(null);
-    const { error } = await supabase.rpc('set_commitment', {
-      p_participant_id: participantId,
-      p_is_committed: !state.me.is_committed,
-    });
-    if (error) {
-      setActionError(error.message);
-      return;
+    setIsSubmitting(true);
+    try {
+      const { error } = await supabase.rpc('set_commitment', {
+        p_participant_id: participantId,
+        p_is_committed: !state.me.is_committed,
+      });
+      if (error) {
+        setActionError(error.message);
+        return;
+      }
+      void refresh(participantId);
+    } finally {
+      setIsSubmitting(false);
     }
-    void refresh(participantId);
   }
 
   if (errorMessage) {
@@ -127,7 +138,7 @@ export default function TripStatus() {
         </Text>
       )}
 
-      <Text style={styles.sectionTitle}>Wann kannst du?</Text>
+      {state.options.length > 0 && <Text style={styles.sectionTitle}>Wann kannst du?</Text>}
       {state.options.map((option) => (
         <View key={option.id} style={styles.optionRow}>
           <Text style={styles.optionDate}>
@@ -136,12 +147,13 @@ export default function TripStatus() {
           <View style={styles.availabilityRow}>
             {(['yes', 'maybe', 'no'] as Availability[]).map((a) => {
               const isSelected = myAvail.get(option.id) === a;
+              const isDisabled = isLocked || isSubmitting;
               return (
                 <Pressable
                   key={a}
-                  style={[styles.availButton, isSelected && styles.availButtonSelected, isLocked && styles.availButtonDisabled]}
+                  style={[styles.availButton, isSelected && styles.availButtonSelected, isDisabled && styles.availButtonDisabled]}
                   onPress={() => setAvailability(option.id, a)}
-                  disabled={isLocked}
+                  disabled={isDisabled}
                 >
                   <Text style={styles.availButtonText}>
                     {a === 'yes' ? '✅ Ja' : a === 'maybe' ? '🤔 Vielleicht' : '❌ Nein'}
@@ -156,7 +168,11 @@ export default function TripStatus() {
       {actionError && <Text style={styles.error}>{actionError}</Text>}
 
       {!isLocked && (
-        <Pressable style={styles.commitButton} onPress={toggleCommit}>
+        <Pressable
+          style={[styles.commitButton, isSubmitting && styles.commitButtonDisabled]}
+          onPress={toggleCommit}
+          disabled={isSubmitting}
+        >
           <Text style={styles.commitButtonText}>
             {state.me?.is_committed ? 'Zusage zurückziehen' : 'Ich bin dabei 🙌'}
           </Text>
@@ -192,6 +208,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 8,
   },
+  commitButtonDisabled: { opacity: 0.4 },
   commitButtonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   error: { fontSize: 14, color: '#ff6b6b' },
 });

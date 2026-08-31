@@ -11,6 +11,7 @@ export async function getParticipant(tripId: string): Promise<string | null> {
   return AsyncStorage.getItem(key(tripId));
 }
 
+/** Returns the list of trip IDs for which this device has a stored participant ID. */
 export async function listTripIds(): Promise<string[]> {
   const keys = await AsyncStorage.getAllKeys();
   return keys

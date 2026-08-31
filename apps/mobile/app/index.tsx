@@ -12,6 +12,10 @@ interface TripSummary {
   totalParticipants: number;
 }
 
+interface LoadError {
+  message: string;
+}
+
 interface TripStateResponse {
   trip: { id: string; title: string; status: string } | null;
   total_participants: number;
@@ -22,10 +26,12 @@ export default function HomeScreen() {
   const router = useRouter();
   const [trips, setTrips] = useState<TripSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<LoadError | null>(null);
 
   const loadTrips = useCallback(async (isActive: () => boolean) => {
     try {
       setIsLoading(true);
+      if (isActive()) setLoadError(null);
       const tripIds = await listTripIds();
       const summaries: TripSummary[] = [];
       for (const tripId of tripIds) {
@@ -47,7 +53,8 @@ export default function HomeScreen() {
       }
       if (isActive()) setTrips(summaries);
     } catch (error) {
-      // Handle errors gracefully; leave spinner state managed by finally
+      const message = error instanceof Error ? error.message : 'Ein Fehler ist aufgetreten.';
+      if (isActive()) setLoadError({ message });
     } finally {
       if (isActive()) setIsLoading(false);
     }
@@ -70,6 +77,8 @@ export default function HomeScreen() {
 
       {isLoading ? (
         <ActivityIndicator color="#fff" />
+      ) : loadError ? (
+        <Text style={styles.error}>Die Trip-Liste konnte nicht geladen werden.</Text>
       ) : (
         <FlatList
           style={styles.list}
@@ -120,4 +129,5 @@ const styles = StyleSheet.create({
   tripStatus: { color: '#fff', opacity: 0.7, fontSize: 14, marginTop: 4 },
   button: { backgroundColor: '#2f6fed', paddingHorizontal: 24, paddingVertical: 14, borderRadius: 12 },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  error: { color: '#ff6b6b', fontSize: 16, textAlign: 'center' },
 });
