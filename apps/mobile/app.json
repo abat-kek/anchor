@@ -27,7 +27,7 @@
           "data": {
             "scheme": "https",
             "host": "anchor.kek95.duckdns.org",
-            "pathPrefix": "/join"
+            "pathPrefix": "/join/"
           },
           "category": ["BROWSABLE", "DEFAULT"]
         }
