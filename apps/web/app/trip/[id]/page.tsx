@@ -4,12 +4,18 @@ import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { getParticipant } from '@/lib/participant-store';
-import type { Availability } from '@anchor/shared';
+import { validateDateOptionInput, type Availability } from '@anchor/shared';
 
 interface OptionRow {
   id: string;
   start_date: string;
   end_date: string;
+}
+
+interface ParticipantRow {
+  id: string;
+  display_name: string;
+  is_committed: boolean;
 }
 
 interface TripState {
@@ -23,6 +29,7 @@ interface TripState {
   options: OptionRow[];
   total_participants: number;
   committed_count: number;
+  participants: ParticipantRow[];
   me: {
     is_committed: boolean;
     availabilities: { date_option_id: string; availability: Availability }[];
@@ -37,6 +44,9 @@ export default function TripPage() {
   const [participantId, setParticipantId] = useState<string | null>(null);
   const [state, setState] = useState<TripState | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [proposeStart, setProposeStart] = useState('');
+  const [proposeEnd, setProposeEnd] = useState('');
+  const [proposeError, setProposeError] = useState<string | null>(null);
 
   const refresh = useCallback(async (pid: string) => {
     const { data, error } = await supabase.rpc('get_trip_state', { p_participant_id: pid });
@@ -74,6 +84,35 @@ export default function TripPage() {
       p_participant_id: participantId,
       p_is_committed: !state.me.is_committed,
     });
+    void refresh(participantId);
+  }
+
+  async function proposeDateOption() {
+    if (!participantId) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const validation = validateDateOptionInput(proposeStart, proposeEnd, today);
+    if (!validation.ok) {
+      setProposeError(
+        validation.reason === 'missing_dates'
+          ? 'Bitte beide Daten angeben.'
+          : validation.reason === 'end_before_start'
+            ? 'Das Enddatum muss nach dem Startdatum liegen.'
+            : 'Das Startdatum darf nicht in der Vergangenheit liegen.',
+      );
+      return;
+    }
+    setProposeError(null);
+    const { error } = await supabase.rpc('propose_date_option', {
+      p_participant_id: participantId,
+      p_start_date: proposeStart,
+      p_end_date: proposeEnd,
+    });
+    if (error) {
+      setProposeError(error.message);
+      return;
+    }
+    setProposeStart('');
+    setProposeEnd('');
     void refresh(participantId);
   }
 
@@ -144,6 +183,39 @@ export default function TripPage() {
           ))}
         </div>
       ))}
+
+      {!isLocked && (
+        <div style={{ marginTop: 16, marginBottom: 16 }}>
+          <h3 style={{ marginBottom: 8 }}>Eigenen Termin vorschlagen</h3>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <input
+              type="date"
+              value={proposeStart}
+              onChange={(e) => setProposeStart(e.target.value)}
+              style={{ padding: 8 }}
+            />
+            <input
+              type="date"
+              value={proposeEnd}
+              onChange={(e) => setProposeEnd(e.target.value)}
+              style={{ padding: 8 }}
+            />
+            <button onClick={proposeDateOption} style={{ padding: 8, cursor: 'pointer' }}>
+              Vorschlagen
+            </button>
+          </div>
+          {proposeError && <p style={{ color: 'crimson', marginTop: 8 }}>{proposeError}</p>}
+        </div>
+      )}
+
+      <h2>Wer ist dabei</h2>
+      <ul style={{ listStyle: 'none', padding: 0 }}>
+        {(state?.participants ?? []).map((p) => (
+          <li key={p.id} style={{ padding: '4px 0' }}>
+            {p.is_committed ? '✅' : '⏳'} {p.display_name}
+          </li>
+        ))}
+      </ul>
 
       {!isLocked && (
         <button
