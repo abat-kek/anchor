@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { supabase } from '../../src/lib/supabase';
 import { getParticipant } from '../../src/lib/participant-store';
-import type { Availability } from '@anchor/shared';
+import { validateDateOptionInput, type Availability } from '@anchor/shared';
 
 const POLL_MS = 4000;
 
@@ -11,6 +11,12 @@ interface OptionRow {
   id: string;
   start_date: string;
   end_date: string;
+}
+
+interface ParticipantRow {
+  id: string;
+  display_name: string;
+  is_committed: boolean;
 }
 
 interface TripState {
@@ -23,6 +29,7 @@ interface TripState {
     availabilities: { date_option_id: string; availability: Availability }[];
   } | null;
   locked_option: { start_date: string; end_date: string } | null;
+  participants: ParticipantRow[];
 }
 
 export default function TripStatus() {
@@ -33,6 +40,9 @@ export default function TripStatus() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [proposeStart, setProposeStart] = useState('');
+  const [proposeEnd, setProposeEnd] = useState('');
+  const [proposeError, setProposeError] = useState<string | null>(null);
 
   const refresh = useCallback(async (pid: string) => {
     const { data, error } = await supabase.rpc('get_trip_state', { p_participant_id: pid });
@@ -95,6 +105,40 @@ export default function TripStatus() {
         setActionError(error.message);
         return;
       }
+      void refresh(participantId);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function proposeDateOption() {
+    if (!participantId) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const validation = validateDateOptionInput(proposeStart, proposeEnd, today);
+    if (!validation.ok) {
+      setProposeError(
+        validation.reason === 'missing_dates'
+          ? 'Bitte beide Daten im Format JJJJ-MM-TT angeben.'
+          : validation.reason === 'end_before_start'
+            ? 'Das Enddatum muss nach dem Startdatum liegen.'
+            : 'Das Startdatum darf nicht in der Vergangenheit liegen.',
+      );
+      return;
+    }
+    setProposeError(null);
+    setIsSubmitting(true);
+    try {
+      const { error } = await supabase.rpc('propose_date_option', {
+        p_participant_id: participantId,
+        p_start_date: proposeStart,
+        p_end_date: proposeEnd,
+      });
+      if (error) {
+        setProposeError(error.message);
+        return;
+      }
+      setProposeStart('');
+      setProposeEnd('');
       void refresh(participantId);
     } finally {
       setIsSubmitting(false);
@@ -168,6 +212,34 @@ export default function TripStatus() {
       {actionError && <Text style={styles.error}>{actionError}</Text>}
 
       {!isLocked && (
+        <View style={styles.proposeSection}>
+          <Text style={styles.sectionTitle}>Eigenen Termin vorschlagen</Text>
+          <View style={styles.proposeRow}>
+            <TextInput
+              value={proposeStart}
+              onChangeText={setProposeStart}
+              placeholder="Start JJJJ-MM-TT"
+              placeholderTextColor="#8a8a94"
+              accessibilityLabel="Startdatum"
+              style={styles.proposeInput}
+            />
+            <TextInput
+              value={proposeEnd}
+              onChangeText={setProposeEnd}
+              placeholder="Ende JJJJ-MM-TT"
+              placeholderTextColor="#8a8a94"
+              accessibilityLabel="Enddatum"
+              style={styles.proposeInput}
+            />
+          </View>
+          <Pressable style={styles.proposeButton} onPress={proposeDateOption} disabled={isSubmitting}>
+            <Text style={styles.commitButtonText}>Vorschlagen</Text>
+          </Pressable>
+          {proposeError && <Text style={styles.error}>{proposeError}</Text>}
+        </View>
+      )}
+
+      {!isLocked && (
         <Pressable
           style={[styles.commitButton, isSubmitting && styles.commitButtonDisabled]}
           onPress={toggleCommit}
@@ -178,6 +250,13 @@ export default function TripStatus() {
           </Text>
         </Pressable>
       )}
+
+      <Text style={styles.sectionTitle}>Wer ist dabei</Text>
+      {state.participants.map((p) => (
+        <Text key={p.id} style={styles.participantRow}>
+          {p.is_committed ? '✅' : '⏳'} {p.display_name}
+        </Text>
+      ))}
     </View>
   );
 }
@@ -211,4 +290,22 @@ const styles = StyleSheet.create({
   commitButtonDisabled: { opacity: 0.4 },
   commitButtonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   error: { fontSize: 14, color: '#ff6b6b' },
+  proposeSection: { gap: 8, marginTop: 8 },
+  proposeRow: { flexDirection: 'row', gap: 8 },
+  proposeInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#3a3a44',
+    borderRadius: 8,
+    padding: 10,
+    color: '#fff',
+    backgroundColor: '#17171d',
+  },
+  proposeButton: {
+    backgroundColor: '#2f6fed',
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  participantRow: { color: '#fff', fontSize: 14, paddingVertical: 2 },
 });
