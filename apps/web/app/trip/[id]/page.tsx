@@ -192,12 +192,14 @@ export default function TripPage() {
               type="date"
               value={proposeStart}
               onChange={(e) => setProposeStart(e.target.value)}
+              aria-label="Startdatum"
               style={{ padding: 8 }}
             />
             <input
               type="date"
               value={proposeEnd}
               onChange={(e) => setProposeEnd(e.target.value)}
+              aria-label="Enddatum"
               style={{ padding: 8 }}
             />
             <button onClick={proposeDateOption} style={{ padding: 8, cursor: 'pointer' }}>
