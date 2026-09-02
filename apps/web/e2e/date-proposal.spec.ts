@@ -21,9 +21,8 @@ test('guest proposes own date option and sees the participant list', async ({ pa
 
   await expect(page.getByText('⏳ Vorschlag-Gast')).toBeVisible();
 
-  const dateInputs = page.locator('input[type="date"]');
-  await dateInputs.nth(0).fill('2026-05-01');
-  await dateInputs.nth(1).fill('2026-05-03');
+  await page.getByLabel('Startdatum').fill('2026-05-01');
+  await page.getByLabel('Enddatum').fill('2026-05-03');
   await page.getByRole('button', { name: 'Vorschlagen' }).click();
 
   await expect(page.getByText('2026-05-01 – 2026-05-03')).toBeVisible();
