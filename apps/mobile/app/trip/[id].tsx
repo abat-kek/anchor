@@ -113,6 +113,11 @@ export default function TripStatus() {
 
   async function proposeDateOption() {
     if (!participantId) return;
+    const isoDatePattern = /^\d{4}-\d{2}-\d{2}$/;
+    if (!isoDatePattern.test(proposeStart) || !isoDatePattern.test(proposeEnd)) {
+      setProposeError('Bitte das Format JJJJ-MM-TT verwenden (z. B. 2026-03-14).');
+      return;
+    }
     const today = new Date().toISOString().slice(0, 10);
     const validation = validateDateOptionInput(proposeStart, proposeEnd, today);
     if (!validation.ok) {
