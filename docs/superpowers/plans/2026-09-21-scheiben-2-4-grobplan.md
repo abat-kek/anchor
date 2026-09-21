@@ -109,11 +109,19 @@ sind noch nicht gesetzt — siehe E8.
 
 ## 4. Reihenfolge
 
-Scheibe 2 und 3 sind voneinander unabhaengig und koennten parallel laufen; Scheibe 4 setzt auf
-beiden auf, weil sie deren Statuswechsel konsumiert. Empfehlung: **3 vor 2.** Die Kostenteilung
-hat keinen Fremdsystem-Anteil — kein Bot-Schutz, kein Push-Dienst — und liefert damit den
-sichersten naechsten Fortschritt; die Unterkunft traegt das groesste Risiko, an fremden
-Webseiten zu scheitern.
+**Festgelegt: Unterkunft (2) → Kosten (3) → Nudges (4)** — also die Reihenfolge des
+Nutzungsablaufs.
+
+Mein urspruenglicher Vorschlag war 3 vor 2, begruendet mit dem Bau-Risiko: die Kostenteilung
+hat keinen Fremdsystem-Anteil, die Unterkunft haengt am Wohlwollen fremder Webseiten. Kevins
+Einwand schlaegt das: Nach dem Termin-Lock steht die Gruppe **sofort** vor der Unterkunftsfrage,
+waehrend die Abrechnung erst Wochen spaeter faellig wird — und meist erst nach der Reise, weil
+bis dahin weitere Ausgaben anfallen. Eine App, die nach dem Lock nichts anzubieten hat, verliert
+die Gruppe genau in dem Moment, in dem sie sie gerade gewonnen hat. Das Bau-Risiko ist zudem
+durch E1 entschaerft: mit dem manuellen Pfad zuerst kann Scheibe 2 am Bot-Schutz gar nicht
+scheitern.
+
+Scheibe 4 bleibt zuletzt, weil sie die Statuswechsel aus 2 und 3 konsumiert.
 
 ---
 
@@ -124,16 +132,17 @@ Empfehlung.
 
 | Nr. | Frage | Meine Empfehlung | Alternative(n) |
 |---|---|---|---|
-| **E1** | Unterkunft: automatisches Metadaten-Parsen ueberhaupt bauen? | **Ja, aber als Zugabe** — zuerst der manuelle Pfad (Link, Titel, Preis von Hand), Parsing danach obendrauf. So haengt die Scheibe nicht am Bot-Schutz fremder Seiten | Parsing zuerst (schoener, aber die Scheibe kann daran scheitern); gar kein Parsing (dann ist „affiliate-ready" nur noch ein Feld) |
+| **E1** | Unterkunft: in welcher Reihenfolge — manueller Eingabepfad oder automatisches Open-Graph-Parsing zuerst? Es geht **nicht** um weniger Funktion, nur um die Reihenfolge | **Manueller Pfad zuerst, Parsing danach obendrauf.** Open-Graph-Tags (`og:title`, `og:image`, `og:price`) sind dieselbe Technik, die WhatsApp fuer Linkvorschauen nutzt; Airbnb und Booking wehren serverseitige Abrufe aber haeufig ab und liefern dann eine Bot-Abwehrseite statt echter Tags. Baut man das Parsing zuerst, haengt die ganze Scheibe daran, obwohl Voting und Kuerung — der eigentliche Wert — davon unabhaengig sind. **Ob die beiden Seiten gegen CT 113 ueberhaupt brauchbare Tags liefern, ist ungeprueft** | Parsing zuerst (schoener, aber die Scheibe kann daran scheitern); gar kein Parsing (dann ist „affiliate-ready" nur noch ein Feld) |
 | **E2** | Voting-Modus | **Eine Stimme pro Person** — einfach und sofort verstaendlich | Mehrfachstimmen („alle, mit denen ich leben kann") — fairer bei vielen Optionen, aber erklaerungsbeduerftig |
 | **E3** | Gleichstand beim Voting | **Aeltester Vorschlag gewinnt** — nachvollziehbar und ohne Zufall. `winningOption` hat heute **keine** definierte Regel und nimmt schlicht den ersten Treffer | Der Ersteller entscheidet; Stichwahl (mehr Runden, mehr Reibung) |
 | **E4** | Wo werden Salden gerechnet? | **Im Client**, ueber die vorhandenen getesteten Funktionen — eine Quelle der Wahrheit | In SQL: ein Ergebnis fuer alle, aber die Logik existiert doppelt und faellt beim naechsten Aendern auseinander |
-| **E5** | Restcent bei ungerader Teilung | **Der Zahler traegt den Rest** — unauffaellig, braucht keine Erklaerung | Reihum verteilen (gerechter, schwerer nachzuvollziehen); auf 5 Cent runden |
+| **E5** | Restcent bei ungerader Teilung | **ENTSCHIEDEN (Kevin): reihum verteilen.** 10,00 EUR auf drei Personen = 334/333/333 Cent, beim naechsten Mal beginnt die Verteilung bei der naechsten Person. Braucht eine stabile Teilnehmerreihenfolge und einen Startindex je Ausgabe | Verworfen: der Zahler traegt den Rest (unauffaelliger, aber ueber viele Ausgaben systematisch unfair); auf 5 Cent runden |
 | **E6** | Settle-up-Weg | **PayPal.me-Deeplink plus „als bezahlt markieren"** | Nur IBAN anzeigen; gar kein Deeplink. In keinem Fall fliesst Geld durch die App |
-| **E7** | Nudges an Link-Gaeste ohne App | **Vorerst nur Push, kein Mailversand** — Mail braucht SMTP-Zugang und eine Absender-Domain, die es auf CT 113 nicht gibt, und ist ein eigenes Vorhaben | Mail ueber einen externen Dienst (Aufwand plus laufende Abhaengigkeit); SMS (Kosten) |
+| **E7** | Nudges an Link-Gaeste ohne App | **ENTSCHIEDEN (Kevin): vorerst nur Push, aber so gebaut, dass Mail spaeter kein Umbau ist.** Konkret: Spalte `channel` von Anfang an in `nudge_events`; eine Versand-Schnittstelle mit zwei Implementierungen, von denen nur Push scharf ist; die Empfaenger-Aufloesung liefert bereits eine Mailadresse (`link_guests.email` existiert im Datenmodell). Spaeter fehlt dann nur noch der SMTP-Zugang plus eine Implementierung | Verworfen: Mail sofort einrichten (eigenes Vorhaben, Absender-Domain noetig); SMS (Kosten) |
 | **E8** | Nudge-Frequenz | **Hoechstens 3 pro Woche und Person, mindestens 12 Stunden Abstand** | Strenger (1 pro Woche) — weniger wirksam; lockerer — der direkte Weg in die Deinstallation |
-| **E9** | Reihenfolge | **Erst Kosten (3), dann Unterkunft (2), dann Nudges (4)** | Erst Unterkunft — naeher am Trip-Erlebnis, aber risikoreicher |
+| **E9** | Reihenfolge | **ENTSCHIEDEN (Kevin): Unterkunft (2) → Kosten (3) → Nudges (4).** Kevins Einwand schlaegt mein Bau-Risiko-Argument: nach dem Termin-Lock steht die Gruppe sofort vor der Unterkunftsfrage, die Abrechnung folgt erst Wochen spaeter und meist erst nach dem Urlaub. Eine App, die nach dem Lock nichts anzubieten hat, verliert die Gruppe genau im gewonnenen Moment. Das Bau-Risiko ist ohnehin durch E1 entschaerft | Verworfen: erst Kosten (berechenbarer zu bauen, aber am Nutzungsablauf vorbei) |
 | **E10** | Creator-Auth | **Jetzt nachziehen, vor Scheibe 4** — `create_trip` laeuft bis heute anonym; ohne Konto gibt es keinen verlaesslichen Push-Empfaenger | Weiter anonym: schnell, aber die Nudges haengen in der Luft |
+| **E12** | Bis wann duerfen Kosten erfasst werden? (aufgeworfen durch Kevins E9-Bemerkung: Ausgaben fallen ueberwiegend nach der Reise an) | **Auch bei `status = 'done'` erfassbar, ohne Frist.** Sonst sperrt die Statuslogik genau den Zeitraum aus, in dem die Abrechnung tatsaechlich stattfindet | Nur waehrend `active` (waere am realen Ablauf vorbei); Frist von x Wochen nach Reiseende (zusaetzliche Regel ohne erkennbaren Nutzen) |
 | **E11** | Web-Oberflaeche | **Zweckmaessig lassen** — die APK ist das Produkt, Web bleibt der Einstiegspfad fuer Gaeste | Web gestalterisch aufwerten (eigener Aufwand, siehe die Design-Regeln im Playbook) |
 
 ---
