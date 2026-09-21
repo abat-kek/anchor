@@ -5,6 +5,7 @@ import {
   Linking,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -40,6 +41,15 @@ const CONFIRM_ARM_MS = 600;
  * deckt rund 45 px ab, der Abstand liegt darueber.
  */
 const CONFIRM_SAFE_GAP_PX = 56;
+
+/**
+ * `paddingVertical` des Rueckfrage-Hintergrunds. Steht als Konstante hier, weil
+ * die Klammer der Kartenhoehe damit rechnen muss: der Restplatz ist das Fenster
+ * abzueglich des Sperrrands auf der Trefferseite und dieses Rands auf der
+ * anderen. Aendert sich der eine Wert, muss der andere mitgehen — deshalb teilen
+ * sich Formel und Stil dieselbe Zahl.
+ */
+const CONFIRM_BACKDROP_PADDING_PX = 24;
 
 /** Der angetippte Vorschlag samt Trefferpunkt des Fingers auf dem Bildschirm. */
 interface PendingChoice {
@@ -204,9 +214,13 @@ export function AccommodationSection({
           isBusy={votingOptionId !== null || !canEdit}
           canChoose={canEdit && pendingChoice === null}
           onToggleVote={() => void toggleVote(option.id)}
-          onRequestChoose={(event) =>
-            setPendingChoice({ optionId: option.id, tapPageY: event.nativeEvent.pageY })
-          }
+          onRequestChoose={(event) => {
+            // Die Meldung eines frueheren Kuer-Versuchs gehoert nicht in eine
+            // frische Rueckfrage — sie waere dort nicht nur falsch, sie macht
+            // die Karte auch um eine Zeile hoeher.
+            setActionError(null);
+            setPendingChoice({ optionId: option.id, tapPageY: event.nativeEvent.pageY });
+          }}
           onOpenLink={(rawUrl) => openStayLink(rawUrl, setLinkError)}
         />
       ))}
@@ -402,6 +416,15 @@ function ConfirmChoiceDialog({
         paddingBottom: windowHeight - tapPageY + CONFIRM_SAFE_GAP_PX,
       };
 
+  // Der Platz, der nach dem Sperrrand uebrig bleibt. Genau so hoch darf die Karte
+  // hoechstens werden — `maxHeight` ist eine harte Grenze, und `overflow: hidden`
+  // haelt auch ein zu grosses Kind innerhalb dieser Grenze. Ohne die Klammer
+  // waere die Karte so hoch wie ihr Inhalt und wuechse in den Sperrrand hinein.
+  const availableCardHeight =
+    (isTapInUpperHalf ? windowHeight - tapPageY : tapPageY) -
+    CONFIRM_SAFE_GAP_PX -
+    CONFIRM_BACKDROP_PADDING_PX;
+
   return (
     <Modal
       visible
@@ -410,34 +433,40 @@ function ConfirmChoiceDialog({
       onRequestClose={isChoosing ? undefined : onCancel}
     >
       <View style={[styles.modalBackdrop, keepAwayFromTap]}>
-        <View style={styles.modalCard} accessibilityViewIsModal accessibilityRole="alert">
-          <Text style={styles.modalQuestion}>
-            Wirklich <Text style={styles.modalTitleStrong}>{stayTitle}</Text> küren? Danach lässt
-            sich die Unterkunft nicht mehr ändern.
-          </Text>
-          <Pressable
-            onPress={onConfirm}
-            disabled={isConfirmDisabled}
-            accessibilityRole="button"
-            accessibilityState={{ disabled: isConfirmDisabled }}
-            style={[styles.confirmButton, isConfirmDisabled && styles.disabled]}
-          >
-            {isChoosing ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.buttonText}>Ja, {stayTitle} nehmen wir</Text>
-            )}
-          </Pressable>
-          <Pressable
-            onPress={onCancel}
-            disabled={isChoosing}
-            accessibilityRole="button"
-            accessibilityState={{ disabled: isChoosing }}
-            style={[styles.cancelButton, isChoosing && styles.disabled]}
-          >
-            <Text style={styles.buttonText}>Abbrechen</Text>
-          </Pressable>
-          {errorMessage && <Text style={styles.error}>{errorMessage}</Text>}
+        <View
+          style={[styles.modalCard, { maxHeight: availableCardHeight }]}
+          accessibilityViewIsModal
+          accessibilityRole="alert"
+        >
+          <ScrollView style={styles.modalCardScroll} contentContainerStyle={styles.modalCardContent}>
+            <Text style={styles.modalQuestion}>
+              Wirklich <Text style={styles.modalTitleStrong}>{stayTitle}</Text> küren? Danach lässt
+              sich die Unterkunft nicht mehr ändern.
+            </Text>
+            <Pressable
+              onPress={onConfirm}
+              disabled={isConfirmDisabled}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: isConfirmDisabled }}
+              style={[styles.confirmButton, isConfirmDisabled && styles.disabled]}
+            >
+              {isChoosing ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.buttonText}>Ja, {stayTitle} nehmen wir</Text>
+              )}
+            </Pressable>
+            <Pressable
+              onPress={onCancel}
+              disabled={isChoosing}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: isChoosing }}
+              style={[styles.cancelButton, isChoosing && styles.disabled]}
+            >
+              <Text style={styles.buttonText}>Abbrechen</Text>
+            </Pressable>
+            {errorMessage && <Text style={styles.error}>{errorMessage}</Text>}
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -577,9 +606,17 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 2,
     borderColor: '#2a7',
-    padding: 20,
-    gap: 12,
+    // Haelt den Inhalt innerhalb der `maxHeight`-Klammer: ein zu hoher Inhalt
+    // wird abgeschnitten statt ueber den Rand hinaus gezeichnet und beruehrbar
+    // zu bleiben. Erreichbar bleibt er ueber die ScrollView darin.
+    overflow: 'hidden',
   },
+  // `flexShrink: 1` ist der Teil, der die Klammer wirksam macht: ohne ihn behielte
+  // die ScrollView ihre Inhaltshoehe, die Karte schnitte sie nur ab, und der
+  // untere Teil waere weder sichtbar noch erreichbar. Mit ihm schrumpft die
+  // ScrollView auf die geklammerte Kartenhoehe und laesst den Rest scrollen.
+  modalCardScroll: { flexShrink: 1 },
+  modalCardContent: { padding: 20, gap: 12 },
   modalQuestion: { color: '#fff', fontSize: 16, lineHeight: 22 },
   modalTitleStrong: { fontWeight: '700' },
   confirmButton: {
