@@ -8,7 +8,9 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
+  type GestureResponderEvent,
 } from 'react-native';
 import { supabase } from '../../lib/supabase';
 import {
@@ -23,15 +25,28 @@ import {
 } from '@anchor/shared';
 
 /**
- * Wartezeit, bis der Ja-Knopf der Kuerungs-Rueckfrage reagiert.
- *
- * Auf dem Telefon ist der zweite Tipp eines Doppeltipps das eigentliche Risiko:
- * `choose_accommodation` ist unwiderruflich, und anders als im Browser laesst
- * sich die Position des Ja-Knopfes nicht zuverlaessig weit genug vom eben
- * getippten Knopf weghalten — die Liste ist scrollbar, der Ausloeser kann
- * ueberall stehen. Die kurze Sperre wirkt unabhaengig von der Position.
+ * Zweite, nachgeordnete Sperre: der Ja-Knopf der Kuerungs-Rueckfrage reagiert die
+ * ersten Millisekunden nicht. Sie deckt den klassischen Doppeltipp (100-250 ms)
+ * deterministisch ab, misst aber die Zeit ab dem Einhaengen der Komponente und
+ * nicht ab dem sichtbaren Erscheinen des Fensters — auf einem langsamen Geraet
+ * schrumpft das wirksame Fenster. Sie traegt deshalb nicht allein; die
+ * eigentliche Absicherung ist `CONFIRM_SAFE_GAP_PX` (siehe ConfirmChoiceDialog).
  */
 const CONFIRM_ARM_MS = 600;
+
+/**
+ * Mindestabstand zwischen der Stelle, an der der Finger den Kuer-Knopf getroffen
+ * hat, und der gesamten Rueckfragekarte. Grosszuegig bemessen: eine Fingerkuppe
+ * deckt rund 45 px ab, der Abstand liegt darueber.
+ */
+const CONFIRM_SAFE_GAP_PX = 56;
+
+/** Der angetippte Vorschlag samt Trefferpunkt des Fingers auf dem Bildschirm. */
+interface PendingChoice {
+  optionId: string;
+  /** `nativeEvent.pageY` des Tipps — Fensterkoordinate, gleiche Ebene wie das Modal. */
+  tapPageY: number;
+}
 
 interface AccommodationSectionProps {
   participantId: string;
@@ -55,6 +70,7 @@ export function AccommodationSection({
   const [votingOptionId, setVotingOptionId] = useState<string | null>(null);
   const [isChoosing, setIsChoosing] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [linkError, setLinkError] = useState<string | null>(null);
 
   // Die sichtbaren Sperren sind State (sie sollen neu rendern), die eigentlichen
   // Doppeltipp-Guards sind Refs: `disabled` an einem Pressable greift erst nach
@@ -64,10 +80,11 @@ export function AccommodationSection({
   const votingOptionIdRef = useRef<string | null>(null);
   const isChoosingRef = useRef(false);
 
-  // Was der Nutzer angetippt hat, festgehalten im Moment des Tipps. Erst die
-  // Bestaetigung loest den RPC aus, und sie nennt den Titel dieser festen ID.
-  // Ein Poll, der die Liste zwischendurch umsortiert, aendert daran nichts.
-  const [pendingChoiceId, setPendingChoiceId] = useState<string | null>(null);
+  // Was der Nutzer angetippt hat, festgehalten im Moment des Tipps: die Option-ID
+  // und die Bildschirmhoehe des Treffers. Erst die Bestaetigung loest den RPC aus,
+  // und sie nennt den Titel dieser festen ID. Ein Poll, der die Liste
+  // zwischendurch umsortiert, aendert daran nichts.
+  const [pendingChoice, setPendingChoice] = useState<PendingChoice | null>(null);
 
   const options = accommodation.options;
   const myVotes = new Set(accommodation.my_votes);
@@ -78,7 +95,9 @@ export function AccommodationSection({
       createdAt: option.created_at,
     })),
   );
-  const pendingChoice = options.find((option) => option.id === pendingChoiceId) ?? null;
+  const pendingOption = pendingChoice
+    ? (options.find((option) => option.id === pendingChoice.optionId) ?? null)
+    : null;
 
   async function addOption() {
     // Guard gegen Doppeltipp: add_accommodation_option ist nicht idempotent,
@@ -147,7 +166,7 @@ export function AccommodationSection({
       });
       setActionError(error ? translateRpcError(error.message) : null);
       if (!error) {
-        setPendingChoiceId(null);
+        setPendingChoice(null);
         onChanged();
       }
     } finally {
@@ -160,7 +179,11 @@ export function AccommodationSection({
     return (
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Wo schlafen wir?</Text>
-        <ChosenStayCard stay={accommodation.chosen_accommodation} />
+        <ChosenStayCard
+          stay={accommodation.chosen_accommodation}
+          onOpenLink={(rawUrl) => openStayLink(rawUrl, setLinkError)}
+        />
+        {linkError && <Text style={styles.error}>{linkError}</Text>}
       </View>
     );
   }
@@ -179,13 +202,17 @@ export function AccommodationSection({
           isVotedByMe={myVotes.has(option.id)}
           isWinner={option.id === winnerOptionId}
           isBusy={votingOptionId !== null || !canEdit}
-          canChoose={canEdit && pendingChoiceId === null}
+          canChoose={canEdit && pendingChoice === null}
           onToggleVote={() => void toggleVote(option.id)}
-          onRequestChoose={() => setPendingChoiceId(option.id)}
+          onRequestChoose={(event) =>
+            setPendingChoice({ optionId: option.id, tapPageY: event.nativeEvent.pageY })
+          }
+          onOpenLink={(rawUrl) => openStayLink(rawUrl, setLinkError)}
         />
       ))}
 
       {actionError && <Text style={styles.error}>{actionError}</Text>}
+      {linkError && <Text style={styles.error}>{linkError}</Text>}
 
       {canEdit && (
         <AddStayForm
@@ -201,26 +228,41 @@ export function AccommodationSection({
         />
       )}
 
-      {pendingChoice && (
+      {pendingChoice && pendingOption && (
         <ConfirmChoiceDialog
-          stayTitle={pendingChoice.title}
+          stayTitle={pendingOption.title}
+          tapPageY={pendingChoice.tapPageY}
           isChoosing={isChoosing}
-          onCancel={() => setPendingChoiceId(null)}
-          onConfirm={() => void chooseOption(pendingChoice.id)}
+          errorMessage={actionError}
+          onCancel={() => setPendingChoice(null)}
+          onConfirm={() => void chooseOption(pendingOption.id)}
         />
       )}
     </View>
   );
 }
 
-function openStayLink(rawUrl: string) {
+/**
+ * Oeffnet den Link im Browser. Schlaegt das fehl — kein Browser fuer dieses
+ * Schema, ein kaputter Link aus dem Parsing — waere der Knopf sonst ein Knopf
+ * ohne Wirkung und ohne Meldung: der rohe Link steht nirgends auf der Karte.
+ */
+function openStayLink(rawUrl: string, setLinkError: (message: string | null) => void) {
+  // Erst die alte Meldung raeumen, sonst bleibt sie nach einem geglueckten
+  // zweiten Versuch stehen.
+  setLinkError(null);
   void Linking.openURL(rawUrl).catch(() => {
-    // Ein nicht oeffenbarer Link ist kein Grund, den Bildschirm zu stoeren;
-    // der rohe Link steht als Text unter dem Titel.
+    setLinkError(`Dieser Link lässt sich nicht öffnen: ${rawUrl}`);
   });
 }
 
-function ChosenStayCard({ stay }: { stay: ChosenAccommodation }) {
+function ChosenStayCard({
+  stay,
+  onOpenLink,
+}: {
+  stay: ChosenAccommodation;
+  onOpenLink: (rawUrl: string) => void;
+}) {
   const price = formatPrice(stay.price_cents, stay.currency);
   return (
     <View style={[styles.card, styles.cardChosen]}>
@@ -230,7 +272,7 @@ function ChosenStayCard({ stay }: { stay: ChosenAccommodation }) {
       <Text style={styles.chosenTitle}>🏠 {stay.title}</Text>
       {price && <Text style={styles.price}>{price}</Text>}
       <Pressable
-        onPress={() => openStayLink(stay.raw_url)}
+        onPress={() => onOpenLink(stay.raw_url)}
         accessibilityRole="link"
         accessibilityLabel={`Zur Unterkunft ${stay.title}`}
       >
@@ -247,7 +289,8 @@ interface StayOptionCardProps {
   isBusy: boolean;
   canChoose: boolean;
   onToggleVote: () => void;
-  onRequestChoose: () => void;
+  onRequestChoose: (event: GestureResponderEvent) => void;
+  onOpenLink: (rawUrl: string) => void;
 }
 
 function StayOptionCard({
@@ -258,6 +301,7 @@ function StayOptionCard({
   canChoose,
   onToggleVote,
   onRequestChoose,
+  onOpenLink,
 }: StayOptionCardProps) {
   const price = formatPrice(option.price_cents, option.currency);
   return (
@@ -271,7 +315,7 @@ function StayOptionCard({
       </Text>
       {price && <Text style={styles.price}>{price}</Text>}
       <Pressable
-        onPress={() => openStayLink(option.raw_url)}
+        onPress={() => onOpenLink(option.raw_url)}
         accessibilityRole="link"
         accessibilityLabel={`Link zu ${option.title} öffnen`}
       >
@@ -305,24 +349,44 @@ function StayOptionCard({
 
 interface ConfirmChoiceDialogProps {
   stayTitle: string;
+  /** Bildschirmhoehe des Tipps, der die Rueckfrage ausgeloest hat. */
+  tapPageY: number;
   isChoosing: boolean;
+  /** Fehler der letzten Kuerung — er muss IM Fenster stehen, nicht dahinter. */
+  errorMessage: string | null;
   onCancel: () => void;
   onConfirm: () => void;
 }
 
 /**
  * Die Rueckfrage liegt als Modal ueber dem Bildschirm: so ist sie ohne Scrollen
- * sichtbar, egal wie weit unten in der Liste der Ausloeser stand. Der Ja-Knopf
- * ist die ersten Millisekunden gesperrt, damit der zweite Tipp eines Doppeltipps
- * die unwiderrufliche Kuerung nicht aus Versehen bestaetigt.
+ * sichtbar, egal wie weit unten in der Liste der Ausloeser stand.
+ *
+ * Gegen den zweiten Tipp eines Doppeltipps schuetzt in erster Linie die Geometrie,
+ * nicht die Zeit. `tapPageY` ist die Fensterkoordinate des Tipps, der die
+ * Rueckfrage ausgeloest hat — dieselbe Koordinatenebene, in der auch das
+ * bildschirmfuellende Modal liegt. Die Karte wird an den Bildschirmrand
+ * gegenueber dem Treffer gelegt, und der Rand des Hintergrunds auf der
+ * Trefferseite wird auf `tapPageY + CONFIRM_SAFE_GAP_PX` (beziehungsweise
+ * `windowHeight - tapPageY + CONFIRM_SAFE_GAP_PX`) aufgeblockt. Damit beginnt die
+ * Karte — und mit ihr jeder ihrer Knoepfe, unabhaengig von Reihenfolge,
+ * Textlaenge und Kartenhoehe — erst mindestens 56 px hinter dem Punkt, an dem der
+ * Finger gerade war. Ein zweiter Tipp an derselben Stelle landet auf dem
+ * durchsichtigen Hintergrund, der nichts ausloest.
+ *
+ * Die Zeitsperre (`CONFIRM_ARM_MS`) bleibt zusaetzlich bestehen, traegt aber nicht
+ * mehr allein.
  */
 function ConfirmChoiceDialog({
   stayTitle,
+  tapPageY,
   isChoosing,
+  errorMessage,
   onCancel,
   onConfirm,
 }: ConfirmChoiceDialogProps) {
   const [isArmed, setIsArmed] = useState(false);
+  const { height: windowHeight } = useWindowDimensions();
 
   useEffect(() => {
     const timer = setTimeout(() => setIsArmed(true), CONFIRM_ARM_MS);
@@ -330,6 +394,13 @@ function ConfirmChoiceDialog({
   }, []);
 
   const isConfirmDisabled = !isArmed || isChoosing;
+  const isTapInUpperHalf = tapPageY < windowHeight / 2;
+  const keepAwayFromTap = isTapInUpperHalf
+    ? { justifyContent: 'flex-end' as const, paddingTop: tapPageY + CONFIRM_SAFE_GAP_PX }
+    : {
+        justifyContent: 'flex-start' as const,
+        paddingBottom: windowHeight - tapPageY + CONFIRM_SAFE_GAP_PX,
+      };
 
   return (
     <Modal
@@ -338,7 +409,7 @@ function ConfirmChoiceDialog({
       animationType="fade"
       onRequestClose={isChoosing ? undefined : onCancel}
     >
-      <View style={styles.modalBackdrop}>
+      <View style={[styles.modalBackdrop, keepAwayFromTap]}>
         <View style={styles.modalCard} accessibilityViewIsModal accessibilityRole="alert">
           <Text style={styles.modalQuestion}>
             Wirklich <Text style={styles.modalTitleStrong}>{stayTitle}</Text> küren? Danach lässt
@@ -366,6 +437,7 @@ function ConfirmChoiceDialog({
           >
             <Text style={styles.buttonText}>Abbrechen</Text>
           </Pressable>
+          {errorMessage && <Text style={styles.error}>{errorMessage}</Text>}
         </View>
       </View>
     </Modal>
@@ -497,8 +569,8 @@ const styles = StyleSheet.create({
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.7)',
-    justifyContent: 'center',
-    padding: 24,
+    paddingHorizontal: 24,
+    paddingVertical: 24,
   },
   modalCard: {
     backgroundColor: '#17171d',

@@ -74,6 +74,13 @@ export default function TripStatus() {
   // losgeschickt wurde, das frische Ergebnis wieder auf den alten Stand zurueck.
   const latestRefreshRef = useRef(0);
 
+  // Guard gegen Doppeltipp beim Vorschlagen. Nicht `isSubmitting`: beide
+  // onPress-Handler stammen aus demselben Render und lesen denselben
+  // Closure-Wert, der zweite saehe also `false`. `disabled` am Pressable wirkt
+  // erst nach dem naechsten Render. propose_date_option ist nicht idempotent —
+  // ohne den Guard entstehen aus einem Doppeltipp zwei gleiche Terminfenster.
+  const isProposingRef = useRef(false);
+
   const refresh = useCallback(async (pid: string) => {
     const requestNumber = latestRefreshRef.current + 1;
     latestRefreshRef.current = requestNumber;
@@ -159,7 +166,7 @@ export default function TripStatus() {
   // zu; validateDateOptionInput bleibt trotzdem stehen, weil ein Bildschirm ueber
   // Mitternacht offen liegen bleiben kann und die serverseitige Pruefung ohnehin gilt.
   async function proposeDateOption() {
-    if (!participantId) return;
+    if (!participantId || isProposingRef.current) return;
     const today = toIsoDate(startOfToday());
     const validation = validateDateOptionInput(proposeStart, proposeEnd, today);
     if (!validation.ok) {
@@ -173,6 +180,7 @@ export default function TripStatus() {
       return;
     }
     setProposeError(null);
+    isProposingRef.current = true;
     setIsSubmitting(true);
     try {
       const { error } = await supabase.rpc('propose_date_option', {
@@ -188,6 +196,7 @@ export default function TripStatus() {
       setProposeEnd('');
       void refresh(participantId);
     } finally {
+      isProposingRef.current = false;
       setIsSubmitting(false);
     }
   }
