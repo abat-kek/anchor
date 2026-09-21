@@ -8,7 +8,9 @@ Alles zwischen den Linien in eine neue Claude-Code-Session einfuegen, Arbeitsver
 Bau Scheibe 2 von Anchor: die Unterkunfts-Kuerung.
 
 **Der Plan liegt fertig vor** — `docs/superpowers/plans/2026-09-21-anchor-slice-2-accommodation.md`,
-sieben Tasks, SQL im Wortlaut. Die zugehoerigen Produktentscheidungen (E1–E12) sind alle
+acht Tasks, SQL im Wortlaut. Task 4b laeuft mit: die native Datumsauswahl in der App ersetzt
+die heutige Texteingabe `JJJJ-MM-TT`. Sie ist bewusst hier gebuendelt, weil sie denselben
+APK-Build braucht wie Scheibe 2. Die zugehoerigen Produktentscheidungen (E1–E12) sind alle
 getroffen und stehen in `docs/superpowers/plans/2026-09-21-scheiben-2-4-grobplan.md`; du musst
 sie nicht neu aufmachen. Lies beide, bevor du anfaengst, dazu
 `docs/superpowers/NACHTLAUF-STATUS-SLICE-1B.md` fuer den aktuellen Stand.
@@ -37,11 +39,17 @@ LXC 116. Zugriff ueber `ssh root@192.168.2.90 "pct exec 113 -- <befehl>"`. Detai
 `C:\Users\KEK\Documents\homelab\HOMELAB.md`, wiederverwendbare Muster in
 `HEIMAPPS-PLAYBOOK.md`. **`labs` (LXC 114) gehoert anderen Apps und wird nicht angefasst.**
 
-**Freigaben:** Code, Tests und Merge nach `master` laufen ohne Rueckfrage durch. Fuer den
-Eingriff auf CT 113 (Migration einspielen, Web neu bauen, Dienst neu starten) und den
-APK-Build auf CT 116 legst du **einen** Warnblock vor und wartest **ein** Ja ab — nicht je
-Schritt einzeln fragen. Vor der Migration ein `pg_dump` nach `/opt/anchor/backups/` ziehen;
-ist `pg_dump` nicht erreichbar, wird nicht deployt, sondern gemeldet.
+**Freigaben:**
+
+- Code, Tests und Merge nach `master` laufen ohne Rueckfrage durch.
+- **Der APK-Build auf CT 116 ist vorab freigegeben** (Kevin, 2026-09-21): Quellcode
+  synchronisieren, `pct exec 116 -- bash /root/relaunch.sh`, Ergebnis pruefen — ohne erneut zu
+  fragen. Umfang dieser Freigabe: ausschliesslich CT 116 und die dortigen Build-Artefakte.
+  Danach den Fingerprint gegen `5bb811da…8d7f` pruefen und melden.
+- **Der Eingriff auf CT 113 ist NICHT vorab freigegeben.** Migration einspielen, Web neu bauen
+  und Dienst neu starten: dafuer legst du **einen** Warnblock vor und wartest **ein** Ja ab —
+  nicht je Schritt einzeln fragen. Vor der Migration ein `pg_dump` nach `/opt/anchor/backups/`
+  ziehen; ist `pg_dump` nicht erreichbar, wird nicht deployt, sondern gemeldet.
 
 **Wenn unterwegs etwas offen ist:** entscheide es selbst, arbeite weiter und halte die
 Entscheidung samt verworfener Alternativen in einer Fortschrittsdatei
@@ -59,5 +67,6 @@ beide billigen, eine Stimme zuruecknehmen und eine Unterkunft kueren kann — na
 - Task 6 (Open-Graph-Parsing) beginnt mit einer Messung: Liefern Airbnb und Booking gegen
   CT 113 ueberhaupt brauchbare Tags? Falls nein, endet der Task dort — der manuelle Pfad ist
   bereits vollwertig. Das ist so gewollt, kein Abbruch.
-- Der naechste kleine Auftrag danach waere die native Datumsauswahl in der App (statt
-  Texteingabe `JJJJ-MM-TT`) — braucht ein natives Modul und damit einen vollen Neubau der APK.
+- Die native Datumsauswahl steckt jetzt als Task 4b im Slice-2-Plan. Scheitert der APK-Build an
+  dem neuen nativen Modul, rollt die Session genau diesen einen Commit zurueck und liefert
+  Scheibe 2 ohne ihn aus — die Unterkunfts-Kuerung haengt nicht an der Datumsauswahl.

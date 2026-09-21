@@ -274,6 +274,39 @@ Parsing es liefert. Absende-Guard ueber den bereits vorhandenen `isSubmitting`-Z
 
 ---
 
+## Task 4b: Native Datumsauswahl in der App (mitlaufend, eigener Commit)
+
+**Warum in dieser Scheibe?** Sie braucht ohnehin einen vollen APK-Build; getrennt umgesetzt
+faellt dieser langsamste Schritt der Kette zweimal an. Kevin hat die Buendelung entschieden.
+
+**Problem:** `apps/mobile/app/trip/[id].tsx` nimmt Start- und Enddatum heute als Text im Format
+`JJJJ-MM-TT` entgegen. Kein Format zum Merken zu muessen ist der auffaelligste Qualitaetsgewinn
+der App. Die Web-Seite ist nicht betroffen — dort liefert `<input type="date">` bereits den
+Browser-Kalender.
+
+- [ ] **Step 1: Abhaengigkeit aufnehmen.** `npx expo install @react-native-community/datetimepicker`
+      — `expo install` waehlt die zur SDK-Version passende Fassung, `pnpm add` nicht.
+      **Achtung:** natives Modul. Der naechste `expo prebuild` auf CT 116 kompiliert es mit;
+      dass der Build danach noch durchlaeuft, ist Teil der Abnahme dieses Tasks und kein
+      Nebenschauplatz.
+- [ ] **Step 2: Felder ersetzen.** Tippen auf das Feld oeffnet den nativen Dialog; angezeigt
+      wird das Datum in lesbarer Form (`14.03.2026`), nach `packages/shared` geht es
+      unveraendert als ISO-`YYYY-MM-DD`. Die Zeichenketten-Umwandlung an genau einer Stelle
+      kapseln, nicht ueber die Datei verstreuen.
+- [ ] **Step 3: Grenzen setzen.** `minimumDate` = heute (deckt sich mit `start_in_past` aus 0010);
+      beim Enddatum zusaetzlich `minimumDate` = gewaehltes Startdatum. Damit ist „Ende vor Start"
+      gar nicht mehr waehlbar.
+- [ ] **Step 4: Die Regex-Vorpruefung auf `JJJJ-MM-TT` entfernen** — sie wird mit dem Dialog
+      gegenstandslos. `validateDateOptionInput` bleibt unveraendert und gilt weiter, die
+      serverseitige Pruefung ohnehin.
+- [ ] **Step 5:** `pnpm typecheck`, Commit.
+
+**Wenn der APK-Build an dem nativen Modul scheitert:** Task 4b zurueckrollen (ein Commit),
+Scheibe 2 ohne ihn ausliefern und den Fund melden — die Unterkunfts-Kuerung darf nicht an der
+Datumsauswahl haengen.
+
+---
+
 ## Task 5: E2E
 
 **Datei:** `apps/web/e2e/accommodation.spec.ts`
@@ -307,7 +340,9 @@ Stimmenzahl pruefen → eine Stimme zuruecknehmen → kueren → Gewinner steht 
 3. Web-Deploy: Tarball **per `git archive HEAD`** bauen, nicht aus dem Arbeitsverzeichnis
    (sonst reist `.env.local` wieder mit). Danach Build-Log auf `Environments: .env.production`
    pruefen und die ausgelieferten Chunks gegen die API-Domain greppen.
-4. APK auf CT 116 bauen, Fingerprint gegen `5bb811da…8d7f` pruefen.
+4. APK auf CT 116 bauen (**Freigabe liegt vor**, siehe Uebergabe-Prompt), Fingerprint gegen
+   `5bb811da…8d7f` pruefen. Nach Task 4b ist das der erste Build mit einem neuen nativen
+   Modul — `/tmp/apkbuild.log` entsprechend genau ansehen.
 5. Testdaten wieder loeschen.
 
 ---
@@ -319,3 +354,5 @@ Stimmenzahl pruefen → eine Stimme zuruecknehmen → kueren → Gewinner steht 
 - [ ] Hat jedes Formular einen Absende-Guard?
 - [ ] Wurde jede neue Datenbankfunktion live aufgerufen?
 - [ ] Sind alle Fehlercodes uebersetzt?
+- [ ] Laesst sich in der App ein Datum ohne Tastatureingabe waehlen, und ist „Ende vor Start"
+      unmoeglich geworden?
