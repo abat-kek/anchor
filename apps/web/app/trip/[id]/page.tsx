@@ -4,7 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { getParticipant } from '@/lib/participant-store';
-import { validateDateOptionInput, type Availability } from '@anchor/shared';
+import { translateRpcError, validateDateOptionInput, type Availability } from '@anchor/shared';
+import { AccommodationSection, type AccommodationState } from './accommodation-section';
 
 interface OptionRow {
   id: string;
@@ -35,9 +36,21 @@ interface TripState {
     availabilities: { date_option_id: string; availability: Availability }[];
   } | null;
   locked_option: { start_date: string; end_date: string } | null;
+  accommodation: AccommodationState;
 }
 
 const POLL_MS = 4000;
+
+// Ab 'locked' ist der Termin entschieden; die Terminabstimmung bleibt in allen
+// Folgestatus geschlossen, sonst waere sie in der Unterkunftsphase wieder offen.
+const DATE_DECIDED_STATUSES = ['locked', 'accommodation', 'active', 'done'];
+const ACCOMMODATION_EDITABLE_STATUSES = ['locked', 'accommodation'];
+
+const EMPTY_ACCOMMODATION: AccommodationState = {
+  options: [],
+  my_votes: [],
+  chosen_accommodation: null,
+};
 
 export default function TripPage() {
   const { id: tripId } = useParams<{ id: string }>();
@@ -52,7 +65,7 @@ export default function TripPage() {
   const refresh = useCallback(async (pid: string) => {
     const { data, error } = await supabase.rpc('get_trip_state', { p_participant_id: pid });
     if (error) {
-      setError(error.message);
+      setError(translateRpcError(error.message));
       return;
     }
     setState(data as unknown as TripState);
@@ -67,6 +80,10 @@ export default function TripPage() {
     void refresh(participantId);
     const timer = setInterval(() => void refresh(participantId), POLL_MS);
     return () => clearInterval(timer);
+  }, [participantId, refresh]);
+
+  const refreshMine = useCallback(() => {
+    if (participantId) void refresh(participantId);
   }, [participantId, refresh]);
 
   async function setAvailability(optionId: string, availability: Availability) {
@@ -88,18 +105,18 @@ export default function TripPage() {
     void refresh(participantId);
   }
 
+  function describeDateValidation(reason: 'missing_dates' | 'end_before_start' | 'start_in_past') {
+    if (reason === 'missing_dates') return 'Bitte beide Daten angeben.';
+    if (reason === 'end_before_start') return 'Das Enddatum muss nach dem Startdatum liegen.';
+    return 'Das Startdatum darf nicht in der Vergangenheit liegen.';
+  }
+
   async function proposeDateOption() {
     if (!participantId || isProposing) return;
     const today = new Date().toISOString().slice(0, 10);
     const validation = validateDateOptionInput(proposeStart, proposeEnd, today);
     if (!validation.ok) {
-      setProposeError(
-        validation.reason === 'missing_dates'
-          ? 'Bitte beide Daten angeben.'
-          : validation.reason === 'end_before_start'
-            ? 'Das Enddatum muss nach dem Startdatum liegen.'
-            : 'Das Startdatum darf nicht in der Vergangenheit liegen.',
-      );
+      setProposeError(describeDateValidation(validation.reason));
       return;
     }
     setProposeError(null);
@@ -113,7 +130,7 @@ export default function TripPage() {
         p_end_date: proposeEnd,
       });
       if (error) {
-        setProposeError(error.message);
+        setProposeError(translateRpcError(error.message));
         return;
       }
       setProposeStart('');
@@ -148,7 +165,7 @@ export default function TripPage() {
   const myAvail = new Map(
     (state?.me?.availabilities ?? []).map((a) => [a.date_option_id, a.availability]),
   );
-  const isLocked = status === 'locked';
+  const isLocked = DATE_DECIDED_STATUSES.includes(status);
 
   return (
     <main style={wrap}>
@@ -220,6 +237,15 @@ export default function TripPage() {
           </div>
           {proposeError && <p style={{ color: 'crimson', marginTop: 8 }}>{proposeError}</p>}
         </div>
+      )}
+
+      {isLocked && (
+        <AccommodationSection
+          participantId={participantId}
+          accommodation={state?.accommodation ?? EMPTY_ACCOMMODATION}
+          canEdit={ACCOMMODATION_EDITABLE_STATUSES.includes(status)}
+          onChanged={refreshMine}
+        />
       )}
 
       <h2>Wer ist dabei</h2>
