@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import {
   describePriceParseFailure,
@@ -345,9 +345,31 @@ interface ConfirmChoiceProps {
 }
 
 function ConfirmChoice({ stayTitle, isChoosing, onCancel, onConfirm }: ConfirmChoiceProps) {
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  // Die Rueckfrage erscheint unter dem Ausloeser und liegt auf dem Telefon damit
+  // leicht unterhalb des Sichtfelds. Ohne diesen Effekt taete sich fuer den Nutzer
+  // sichtbar nichts: der Knopf wird grau, die Rueckfrage steht unter dem Falz.
+  // Reiner DOM-Effekt beim Einblenden, kein State — die Komponente wird nur
+  // gerendert, solange eine Kuerung ansteht.
+  useEffect(() => {
+    const card = cardRef.current;
+    if (!card) return;
+    // Erst den Fokus setzen (fuer Screenreader und Tastatur), ohne dabei den
+    // Sprung auszuloesen, dann weich zentrieren.
+    card.focus({ preventScroll: true });
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, []);
+
   return (
-    <div style={{ ...cardStyle, marginTop: 16, borderColor: '#2a7' }}>
-      <p style={{ marginTop: 0 }}>
+    <div
+      ref={cardRef}
+      role="alertdialog"
+      aria-labelledby="confirm-choice-question"
+      tabIndex={-1}
+      style={{ ...cardStyle, marginTop: 16, borderColor: '#2a7' }}
+    >
+      <p id="confirm-choice-question" style={{ marginTop: 0 }}>
         Wirklich <strong>{stayTitle}</strong> küren? Danach lässt sich die Unterkunft nicht mehr
         ändern.
       </p>
