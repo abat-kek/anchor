@@ -1,11 +1,31 @@
-import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { supabase } from '../../src/lib/supabase';
 import { getParticipant } from '../../src/lib/participant-store';
-import { validateDateOptionInput, type Availability } from '@anchor/shared';
+import { AccommodationSection } from '../../src/features/trip/AccommodationSection';
+import {
+  EMPTY_ACCOMMODATION_STATE,
+  translateRpcError,
+  validateDateOptionInput,
+  type AccommodationState,
+  type Availability,
+} from '@anchor/shared';
 
 const POLL_MS = 4000;
+
+// Ab 'locked' ist der Termin entschieden; die Terminabstimmung bleibt in allen
+// Folgestatus geschlossen, sonst waere sie in der Unterkunftsphase wieder offen.
+const DATE_DECIDED_STATUSES = ['locked', 'accommodation', 'active', 'done'];
+const ACCOMMODATION_EDITABLE_STATUSES = ['locked', 'accommodation'];
 
 interface OptionRow {
   id: string;
@@ -30,6 +50,7 @@ interface TripState {
   } | null;
   locked_option: { start_date: string; end_date: string } | null;
   participants: ParticipantRow[];
+  accommodation: AccommodationState;
 }
 
 export default function TripStatus() {
@@ -44,10 +65,23 @@ export default function TripStatus() {
   const [proposeEnd, setProposeEnd] = useState('');
   const [proposeError, setProposeError] = useState<string | null>(null);
 
+  // Laufende Nummer der juengsten Anfrage. get_trip_state wird vom 4-Sekunden-Poll
+  // und von jeder Schreibaktion angestossen; die Antworten koennen sich ueberholen.
+  // Ohne diesen Zaehler wirft eine verspaetete Poll-Antwort, die vor einer Stimmabgabe
+  // losgeschickt wurde, das frische Ergebnis wieder auf den alten Stand zurueck.
+  const latestRefreshRef = useRef(0);
+
   const refresh = useCallback(async (pid: string) => {
+    const requestNumber = latestRefreshRef.current + 1;
+    latestRefreshRef.current = requestNumber;
+
     const { data, error } = await supabase.rpc('get_trip_state', { p_participant_id: pid });
+
+    // Inzwischen ist eine neuere Anfrage unterwegs oder schon angekommen: verwerfen.
+    if (requestNumber !== latestRefreshRef.current) return;
+
     if (error) {
-      setErrorMessage(error.message);
+      setErrorMessage(translateRpcError(error.message));
       return;
     }
     setErrorMessage(null);
@@ -83,7 +117,7 @@ export default function TripStatus() {
         p_availability: availability,
       });
       if (error) {
-        setActionError(error.message);
+        setActionError(translateRpcError(error.message));
         return;
       }
       void refresh(participantId);
@@ -102,7 +136,7 @@ export default function TripStatus() {
         p_is_committed: !state.me.is_committed,
       });
       if (error) {
-        setActionError(error.message);
+        setActionError(translateRpcError(error.message));
         return;
       }
       void refresh(participantId);
@@ -139,7 +173,7 @@ export default function TripStatus() {
         p_end_date: proposeEnd,
       });
       if (error) {
-        setProposeError(error.message);
+        setProposeError(translateRpcError(error.message));
         return;
       }
       setProposeStart('');
@@ -167,13 +201,13 @@ export default function TripStatus() {
   }
 
   const status = state.trip?.status ?? 'collecting';
-  const isLocked = status === 'locked';
+  const isLocked = DATE_DECIDED_STATUSES.includes(status);
   const myAvail = new Map(
     (state.me?.availabilities ?? []).map((a) => [a.date_option_id, a.availability]),
   );
 
   return (
-    <View style={styles.scrollContainer}>
+    <ScrollView style={styles.screen} contentContainerStyle={styles.scrollContainer}>
       {isLocked ? (
         <Text style={styles.headline}>
           🎉 Termin steht!
@@ -256,19 +290,29 @@ export default function TripStatus() {
         </Pressable>
       )}
 
+      {isLocked && participantId && (
+        <AccommodationSection
+          participantId={participantId}
+          accommodation={state.accommodation ?? EMPTY_ACCOMMODATION_STATE}
+          canEdit={ACCOMMODATION_EDITABLE_STATUSES.includes(status)}
+          onChanged={() => void refresh(participantId)}
+        />
+      )}
+
       <Text style={styles.sectionTitle}>Wer ist dabei</Text>
       {state.participants.map((p) => (
         <Text key={p.id} style={styles.participantRow}>
           {p.is_committed ? '✅' : '⏳'} {p.display_name}
         </Text>
       ))}
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0b0b0f' },
-  scrollContainer: { flex: 1, padding: 24, gap: 16, backgroundColor: '#0b0b0f' },
+  screen: { flex: 1, backgroundColor: '#0b0b0f' },
+  scrollContainer: { padding: 24, gap: 16, paddingBottom: 48 },
   headline: { fontSize: 22, fontWeight: '700', color: '#fff' },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: '#fff', marginTop: 8 },
   optionRow: { gap: 8 },
