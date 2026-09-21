@@ -29,3 +29,18 @@ export {
   translateRpcError,
   type RpcErrorCode,
 } from './domain/rpc-errors';
+export {
+  isAllowedProtocol,
+  isBlockedIpAddress,
+  isBlockedIpv4,
+  isBlockedIpv6,
+  isIpLiteralHostname,
+  expandIpv6ToGroups,
+} from './domain/url-safety';
+export {
+  parseHttpResponse,
+  dechunkBody,
+  isChunkedTransferEncoding,
+  type ParsedHttpResponse,
+} from './domain/http-response';
+export { extractOpenGraphTags, type OpenGraphData } from './domain/open-graph';
