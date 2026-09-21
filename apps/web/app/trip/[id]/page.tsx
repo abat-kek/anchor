@@ -47,6 +47,7 @@ export default function TripPage() {
   const [proposeStart, setProposeStart] = useState('');
   const [proposeEnd, setProposeEnd] = useState('');
   const [proposeError, setProposeError] = useState<string | null>(null);
+  const [isProposing, setIsProposing] = useState(false);
 
   const refresh = useCallback(async (pid: string) => {
     const { data, error } = await supabase.rpc('get_trip_state', { p_participant_id: pid });
@@ -88,7 +89,7 @@ export default function TripPage() {
   }
 
   async function proposeDateOption() {
-    if (!participantId) return;
+    if (!participantId || isProposing) return;
     const today = new Date().toISOString().slice(0, 10);
     const validation = validateDateOptionInput(proposeStart, proposeEnd, today);
     if (!validation.ok) {
@@ -102,18 +103,25 @@ export default function TripPage() {
       return;
     }
     setProposeError(null);
-    const { error } = await supabase.rpc('propose_date_option', {
-      p_participant_id: participantId,
-      p_start_date: proposeStart,
-      p_end_date: proposeEnd,
-    });
-    if (error) {
-      setProposeError(error.message);
-      return;
+    // Guard gegen Doppelklick: propose_date_option legt pro Aufruf eine neue Zeile an,
+    // ohne ihn entstehen aus einem zweiten Klick zwei identische Terminfenster.
+    setIsProposing(true);
+    try {
+      const { error } = await supabase.rpc('propose_date_option', {
+        p_participant_id: participantId,
+        p_start_date: proposeStart,
+        p_end_date: proposeEnd,
+      });
+      if (error) {
+        setProposeError(error.message);
+        return;
+      }
+      setProposeStart('');
+      setProposeEnd('');
+      void refresh(participantId);
+    } finally {
+      setIsProposing(false);
     }
-    setProposeStart('');
-    setProposeEnd('');
-    void refresh(participantId);
   }
 
   const wrap = { padding: 24, maxWidth: 480, margin: '0 auto', fontFamily: 'system-ui' } as const;
@@ -202,8 +210,12 @@ export default function TripPage() {
               aria-label="Enddatum"
               style={{ padding: 8 }}
             />
-            <button onClick={proposeDateOption} style={{ padding: 8, cursor: 'pointer' }}>
-              Vorschlagen
+            <button
+              onClick={proposeDateOption}
+              disabled={isProposing}
+              style={{ padding: 8, cursor: isProposing ? 'not-allowed' : 'pointer' }}
+            >
+              {isProposing ? '…' : 'Vorschlagen'}
             </button>
           </div>
           {proposeError && <p style={{ color: 'crimson', marginTop: 8 }}>{proposeError}</p>}

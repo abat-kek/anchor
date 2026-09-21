@@ -25,6 +25,13 @@ begin
     raise exception 'invalid_date_range';
   end if;
 
+  -- Dieselbe Regel wie validateDateOptionInput im Client, hier aber verbindlich:
+  -- RLS laesst nur RPC-Aufrufe zu, ein direkter Aufruf mit gueltiger participant_id
+  -- umginge eine rein clientseitige Pruefung vollstaendig.
+  if p_start_date < current_date then
+    raise exception 'start_in_past';
+  end if;
+
   insert into public.trip_date_options(trip_id, start_date, end_date)
   values (v_trip_id, p_start_date, p_end_date)
   returning * into v_new;
