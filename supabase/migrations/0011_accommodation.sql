@@ -28,11 +28,14 @@ create table public.accommodation_votes (
 );
 alter table public.accommodation_votes enable row level security;
 
+-- set null statt cascade: ein geloeschter Teilnehmer darf die Kuerung nicht mitreissen,
+-- falls seine Option gerade die gekuerte ist (added_by_participant_id kaskadiert bewusst weiter).
 alter table public.trips
-  add column chosen_accommodation_id uuid references public.accommodation_options(id);
+  add column chosen_accommodation_id uuid references public.accommodation_options(id) on delete set null;
 
+-- kein Zusatzindex auf accommodation_votes(option_id): unique(option_id, participant_id)
+-- legt bereits einen fuehrenden B-Tree auf option_id an, der alle Zugriffe hier bedient.
 create index accommodation_options_trip_idx on public.accommodation_options(trip_id, created_at);
-create index accommodation_votes_option_idx on public.accommodation_votes(option_id);
 
 -- Vorschlag hinzufuegen (manueller Pfad: Titel kommt vom Nutzer).
 create function public.add_accommodation_option(
@@ -89,12 +92,20 @@ security definer set search_path = public, extensions
 as $$
 declare
   v_trip_id uuid;
+  v_status public.trip_status;
   v_option_trip_id uuid;
   v_deleted integer;
 begin
   select tp.trip_id into v_trip_id
     from public.trip_participants tp where tp.id = p_participant_id;
   if not found then raise exception 'invalid_participant'; end if;
+
+  -- Gleiche Regel wie in add_accommodation_option: eine clientseitige Sperre nach der Kuerung
+  -- waere per direktem RPC-Aufruf umgehbar, sonst laufen vote_count/chosen_accommodation auseinander.
+  select t.status into v_status from public.trips t where t.id = v_trip_id;
+  if v_status not in ('locked', 'accommodation') then
+    raise exception 'trip_not_in_accommodation_phase';
+  end if;
 
   select ao.trip_id into v_option_trip_id
     from public.accommodation_options ao where ao.id = p_option_id;
@@ -148,6 +159,9 @@ $$;
 
 grant execute on function public.add_accommodation_option(uuid, text, text, integer, text) to anon, authenticated;
 grant execute on function public.toggle_accommodation_vote(uuid, uuid) to anon, authenticated;
+-- Bewusst anon, obwohl lock_trip (0003) nur authenticated kennt: das Abnahmekriterium dieser
+-- Scheibe verlangt woertlich, dass ein Gast ueber den Live-Link kueren kann, und Gaeste haben
+-- ausschliesslich den anon-Key. Creator-Auth existiert in diesem Projekt bis heute nicht.
 grant execute on function public.choose_accommodation(uuid, uuid) to anon, authenticated;
 
 -- get_trip_state um Unterkunfts-Block erweitern (Fassung aus 0009, nichts gestrichen).
