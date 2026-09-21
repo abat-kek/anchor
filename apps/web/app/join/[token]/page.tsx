@@ -19,14 +19,17 @@ export default function JoinPage() {
       p_token: token,
       p_display_name: name.trim(),
     });
-    setBusy(false);
     if (err || !data?.[0]) {
+      setBusy(false);
       setError('Beitritt fehlgeschlagen — Link ungültig?');
       return;
     }
     const { trip_id, participant_id } = data[0];
     saveParticipant(trip_id, participant_id);
-    router.push(`/trip/${trip_id}`);
+    // replace statt push: join_trip_via_token ist nicht idempotent — bliebe der Join-Screen
+    // im Back-Stack, erzeugte ein Zurück plus erneutes Absenden einen Geister-Teilnehmer
+    // und verfälschte total_participants. busy bleibt gesetzt, bis die Navigation greift.
+    router.replace(`/trip/${trip_id}`);
   }
 
   return (

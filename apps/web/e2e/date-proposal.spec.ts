@@ -21,13 +21,21 @@ test('guest proposes own date option and sees the participant list', async ({ pa
 
   await expect(page.getByText('⏳ Vorschlag-Gast')).toBeVisible();
 
-  await page.getByLabel('Startdatum').fill('2026-05-01');
-  await page.getByLabel('Enddatum').fill('2026-05-03');
+  // Datumswerte relativ zu heute, nicht fest verdrahtet: validateDateOptionInput lehnt
+  // ein Startdatum in der Vergangenheit ab, ein fixes Datum liesse den Test irgendwann
+  // ohne Codeaenderung umkippen.
+  const isoDay = (offsetDays: number) =>
+    new Date(Date.now() + offsetDays * 24 * 3600 * 1000).toISOString().slice(0, 10);
+  const proposedStart = isoDay(30);
+  const proposedEnd = isoDay(32);
+
+  await page.getByLabel('Startdatum').fill(proposedStart);
+  await page.getByLabel('Enddatum').fill(proposedEnd);
   await page.getByRole('button', { name: 'Vorschlagen' }).click();
 
-  await expect(page.getByText('2026-05-01 – 2026-05-03')).toBeVisible();
+  await expect(page.getByText(`${proposedStart} – ${proposedEnd}`)).toBeVisible();
 
   const { data: options } = await admin
     .from('trip_date_options').select('start_date, end_date').eq('trip_id', trip!.id);
-  expect(options).toContainEqual({ start_date: '2026-05-01', end_date: '2026-05-03' });
+  expect(options).toContainEqual({ start_date: proposedStart, end_date: proposedEnd });
 });
