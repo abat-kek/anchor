@@ -100,6 +100,24 @@ describe('isBlockedIpv6', () => {
     expect(isBlockedIpv6('2606:4700:4700::1111')).toBe(false); // Cloudflare DNS
   });
 
+  it('verfolgt NAT64-Adressen (64:ff9b::/96, RFC 6052) bis zur eingebetteten IPv4 (G3)', () => {
+    expect(isBlockedIpv6('64:ff9b::192.168.2.5')).toBe(true);
+    expect(isBlockedIpv6('64:ff9b::808:808')).toBe(false); // 8.8.8.8
+  });
+
+  it('verfolgt 6to4-Adressen (2002::/16, RFC 3056) bis zur eingebetteten IPv4 (G3)', () => {
+    expect(isBlockedIpv6('2002:c0a8:0205::')).toBe(true); // 192.168.2.5
+    expect(isBlockedIpv6('2002:0808:0808::')).toBe(false); // 8.8.8.8
+  });
+
+  it('entschluesselt Teredo-Adressen (2001:0000::/32, RFC 4380) vor der Pruefung (G3)', () => {
+    // Client-IPv4 steckt XOR-0xffff-verschluesselt in den letzten 32 Bit.
+    // 192.168.2.5 = c0a8:0205 -> invertiert = 3f57:fdfa.
+    expect(isBlockedIpv6('2001::3f57:fdfa')).toBe(true);
+    // 8.8.8.8 = 0808:0808 -> invertiert = f7f7:f7f7.
+    expect(isBlockedIpv6('2001::f7f7:f7f7')).toBe(false);
+  });
+
   it('sperrt (fail-closed) nicht parsbare Adressen', () => {
     expect(isBlockedIpv6('nope')).toBe(true);
   });

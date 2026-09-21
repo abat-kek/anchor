@@ -24,6 +24,15 @@ import { extractOpenGraphTags } from '@anchor/domain/open-graph.ts';
  * mitschicken duerfte, koennte diese Vorpruefung und die Bindung an einen
  * echten, bereits angelegten Vorschlag umgehen. Die Option muss zudem
  * existieren, bevor ueberhaupt ein Fetch versucht wird.
+ *
+ * NACHBESSERUNG W3: der Body verlangt zusaetzlich `participant_id`. Damit
+ * wird geprueft, dass die aufgeloeste Option tatsaechlich zum Trip des
+ * Aufrufers gehoert (wie `toggle_accommodation_vote`,
+ * `0011_accommodation.sql:110-114`, es fuer Stimmen tut) — sonst koennte
+ * jeder, der irgendeine `option_id` aus irgendeinem Trip kennt (die per
+ * `get_trip_state` legitim einsehbar ist), das Parsen fuer eine fremde
+ * Option anstossen. Zusaetzlich verhindert ein Blick auf `parse_status`
+ * (nur `manual` wird verarbeitet) Mehrfachausloesung derselben Option.
  */
 
 const HTTPS_PORT = 443;
@@ -150,20 +159,42 @@ async function resolveSafeConnectIp(hostname: string): Promise<string | null> {
   return allIps[0] ?? null;
 }
 
+/** Verbleibende Millisekunden bis zur absoluten Deadline (kann negativ sein). */
+function remainingMs(deadline: number): number {
+  return deadline - Date.now();
+}
+
 /**
  * Liest hoechstens `maxBytes` vom Socket, in kleinen Schritten statt in
  * einem Rutsch — die Antwort wird abgeschnitten gelesen, nicht vollstaendig
- * in den Speicher geholt. Jeder einzelne `read()` traegt sein eigenes
- * Zeitlimit, damit eine Gegenstelle, die absichtlich extrem langsam
- * ausliefert ("slow loris"), die Function nicht haengen laesst.
+ * in den Speicher geholt.
+ *
+ * NACHBESSERUNG W1: Jeder einzelne `read()` ist auf das Minimum aus
+ * `perReadTimeoutMs` UND der verbleibenden Zeit bis `deadline` begrenzt,
+ * nicht nur auf `perReadTimeoutMs` allein. Ohne die Deadline haette eine
+ * Gegenstelle, die z. B. alle 5 Sekunden ein einzelnes Byte schickt, NIE ein
+ * einzelnes `read()`-Zeitlimit (6 s) gerissen — bei einer Kappungsgrenze von
+ * 320 KiB waeren das >300.000 Einzel-Reads, rechnerisch mehrere Tage an
+ * einem offenen Socket. `raw_url` waehlt der Nutzer frei, ist also direkt
+ * dafuer missbrauchbar. Ist die Deadline schon ueberschritten, wird
+ * abgebrochen und das bisher Gelesene verwendet — kein Fehlerfall, sondern
+ * derselbe "abgeschnitten gelesen"-Normalfall wie bei Erreichen von `maxBytes`.
  */
-async function readCapped(conn: Deno.Conn, maxBytes: number, perReadTimeoutMs: number): Promise<Uint8Array> {
+async function readCapped(
+  conn: Deno.Conn,
+  maxBytes: number,
+  perReadTimeoutMs: number,
+  deadline: number,
+): Promise<Uint8Array> {
   const result = new Uint8Array(maxBytes);
   let total = 0;
   const readBuffer = new Uint8Array(16_384);
 
   while (total < maxBytes) {
-    const bytesRead = await withTimeout(conn.read(readBuffer), perReadTimeoutMs);
+    const timeoutForThisRead = Math.min(perReadTimeoutMs, remainingMs(deadline));
+    if (timeoutForThisRead <= 0) break; // Gesamt-Deadline ueberschritten
+
+    const bytesRead = await withTimeout(conn.read(readBuffer), timeoutForThisRead);
     if (bytesRead === null) break; // Gegenstelle hat die Verbindung geschlossen (EOF)
 
     const takeCount = Math.min(bytesRead, maxBytes - total);
@@ -202,19 +233,27 @@ interface RawHttpResult {
  * geraten (`Deno.ConnectTlsOptions` kennt anders als `Deno.ConnectQuicOptions`
  * KEIN getrenntes `hostname`/`servername`-Paar — nur dieser Zwei-Schritt-Weg
  * ueber die rohe TCP-Verbindung trennt Verbindungsziel und SNI-Namen sauber).
+ *
+ * `deadline` (NACHBESSERUNG W1) ist die absolute Gesamt-Deadline aus
+ * `fetchHtmlSafely` — jeder einzelne Schritt (Connect, TLS-Handshake,
+ * Schreiben, Lesen) bekommt hoechstens das Minimum aus seinem eigenen
+ * Zeitlimit UND der verbleibenden Zeit bis dahin, nie mehr.
  */
 async function performPinnedHttpsRequest(
   originalHostname: string,
   connectIp: string,
   path: string,
+  deadline: number,
 ): Promise<RawHttpResult | null> {
   let tcpConn: Deno.TcpConn | null = null;
   let tlsConn: Deno.TlsConn | null = null;
 
   try {
+    const connectTimeout = Math.min(CONNECT_TIMEOUT_MS, remainingMs(deadline));
+    if (connectTimeout <= 0) return null;
     tcpConn = await raceWithCleanup(
       Deno.connect({ hostname: connectIp, port: HTTPS_PORT }),
-      CONNECT_TIMEOUT_MS,
+      connectTimeout,
     );
     // `tcpConn` bleibt bis hierher zugewiesen, DAMIT das `finally` unten die
     // rohe Verbindung noch schliessen kann, falls `startTls` scheitert (etwa
@@ -222,9 +261,11 @@ async function performPinnedHttpsRequest(
     // ERFOLGREICHEN Handshake wird sie auf null gesetzt (siehe unten) — die
     // Verbindung "gehoert" ab dann der TLS-Huelle (Deno-Doku: startTls
     // konsumiert sie), ein zusaetzliches close() darauf waere falsch.
+    const tlsTimeout = Math.min(CONNECT_TIMEOUT_MS, remainingMs(deadline));
+    if (tlsTimeout <= 0) return null;
     tlsConn = await raceWithCleanup(
       Deno.startTls(tcpConn, { hostname: originalHostname }),
-      CONNECT_TIMEOUT_MS,
+      tlsTimeout,
     );
     tcpConn = null;
 
@@ -238,9 +279,11 @@ async function performPinnedHttpsRequest(
       // selbst entpacken, wofuer die Deno-Standardbibliothek nichts Fertiges
       // mitbringt und ein eigener Decoder hier den Rahmen sprengen wuerde.
       'Connection: close\r\n\r\n';
-    await withTimeout(tlsConn.write(new TextEncoder().encode(requestText)), CONNECT_TIMEOUT_MS);
+    const writeTimeout = Math.min(CONNECT_TIMEOUT_MS, remainingMs(deadline));
+    if (writeTimeout <= 0) return null;
+    await withTimeout(tlsConn.write(new TextEncoder().encode(requestText)), writeTimeout);
 
-    const raw = await readCapped(tlsConn, MAX_RAW_RESPONSE_BYTES, READ_TIMEOUT_MS);
+    const raw = await readCapped(tlsConn, MAX_RAW_RESPONSE_BYTES, READ_TIMEOUT_MS, deadline);
     const parsed = parseHttpResponse(raw);
     if (!parsed) return null;
 
@@ -292,7 +335,7 @@ async function fetchHtmlSafely(startUrl: string): Promise<string | null> {
   }
 
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-    if (Date.now() > deadline) return null;
+    if (remainingMs(deadline) <= 0) return null;
     if (!isAllowedProtocol(currentUrl.protocol)) return null;
     // Nur der https-Standardport — ein abweichender Port vergroessert die
     // Angriffsflaeche (Portscan interner Dienste) ohne fachlichen Nutzen:
@@ -302,8 +345,10 @@ async function fetchHtmlSafely(startUrl: string): Promise<string | null> {
     const connectIp = await resolveSafeConnectIp(currentUrl.hostname);
     if (!connectIp) return null;
 
-    const path = `${currentUrl.pathname}${currentUrl.search}` || '/';
-    const result = await performPinnedHttpsRequest(currentUrl.hostname, connectIp, path);
+    // `URL.pathname` ist fuer `https:` nie leer (mindestens "/"), der frueher
+    // hier stehende `|| '/'`-Fallback griff also nie (Nachbesserung G6).
+    const path = `${currentUrl.pathname}${currentUrl.search}`;
+    const result = await performPinnedHttpsRequest(currentUrl.hostname, connectIp, path, deadline);
     if (!result) return null;
 
     if (REDIRECT_STATUS_CODES.has(result.statusCode)) {
@@ -324,34 +369,77 @@ async function fetchHtmlSafely(startUrl: string): Promise<string | null> {
   return null; // Weiterleitungs-Obergrenze ueberschritten
 }
 
-const OPTION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 Deno.serve(async (req) => {
   if (req.method !== 'POST') {
     return new Response('method_not_allowed', { status: 405 });
   }
 
+  // NACHBESSERUNG W3: `participant_id` ist PFLICHT, nicht nur `option_id`.
+  // Ohne diese Pruefung koennte jeder Aufrufer, der (legitim ueber
+  // `get_trip_state`) eine `option_id` aus IRGENDEINEM Trip kennt, das
+  // Parsen fuer eine fremde Option auf einem fremden Trip anstossen — das
+  // wuerde zwar nur in die eine, bereits existierende Zeile schreiben
+  // (keine Cross-Trip-Datenlecks), aber es waere trotzdem ein Bruch mit dem
+  // sonst strikten Trip-Isolationsmuster dieses Projekts (vgl.
+  // `option_not_in_trip` in `toggle_accommodation_vote`,
+  // `0011_accommodation.sql:110-114`).
   let optionId: string | null = null;
+  let participantId: string | null = null;
   try {
     const body = await req.json();
     if (typeof body?.option_id === 'string') optionId = body.option_id;
+    if (typeof body?.participant_id === 'string') participantId = body.participant_id;
   } catch {
     return new Response('invalid_json', { status: 400 });
   }
-  if (!optionId || !OPTION_ID_PATTERN.test(optionId)) {
+  if (!optionId || !UUID_PATTERN.test(optionId)) {
     return new Response('invalid_option_id', { status: 400 });
+  }
+  if (!participantId || !UUID_PATTERN.test(participantId)) {
+    return new Response('invalid_participant_id', { status: 400 });
   }
 
   // RLS laesst keinen direkten Tabellenzugriff zu (0005_rls_hardening.sql) —
   // wie auto-lock arbeitet diese Function daher mit dem Service-Role-Key.
+  const { data: participant, error: participantError } = await supabase
+    .from('trip_participants')
+    .select('trip_id')
+    .eq('id', participantId)
+    .maybeSingle();
+  if (participantError) return new Response(participantError.message, { status: 500 });
+  if (!participant) return new Response('invalid_participant', { status: 404 });
+
   const { data: option, error: fetchError } = await supabase
     .from('accommodation_options')
-    .select('id, raw_url, price_cents')
+    .select('id, trip_id, raw_url, price_cents, parse_status')
     .eq('id', optionId)
     .maybeSingle();
 
   if (fetchError) return new Response(fetchError.message, { status: 500 });
   if (!option) return new Response('option_not_found', { status: 404 });
+  if (option.trip_id !== participant.trip_id) {
+    return new Response('option_not_in_trip', { status: 403 });
+  }
+
+  // NACHBESSERUNG W3, Wiederholungssperre: ein bereits geparster Vorschlag
+  // (Status `ok` ODER `failed`) wird nicht erneut abgeholt. Ohne diese
+  // Sperre koennte jeder Gast mit Trip-Link dieselbe `option_id` beliebig
+  // oft und nebenlaeufig ausloesen und ueber eine selbst auf
+  // `add_accommodation_option` eingetragene, absichtlich langsame `raw_url`
+  // beliebig viele gleichzeitige ausgehende Verbindungen vom Container
+  // erzwingen (zusammen mit einer fehlenden Gesamt-Deadline waere das eine
+  // echte Erschoepfungslage — siehe W1). `manual` ist der einzige Zustand,
+  // in dem noch nie geparst wurde (siehe `0011_accommodation.sql`: Default
+  // bei `add_accommodation_option` ist `manual`, kein `pending`-Uebergang
+  // existiert in diesem Projekt).
+  if (option.parse_status !== 'manual') {
+    return new Response(
+      JSON.stringify({ option_id: optionId, parse_status: option.parse_status, skipped: true }),
+      { headers: { 'Content-Type': 'application/json' } },
+    );
+  }
 
   const html = await fetchHtmlSafely(option.raw_url);
   const tags = html

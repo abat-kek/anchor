@@ -29,18 +29,10 @@ export {
   translateRpcError,
   type RpcErrorCode,
 } from './domain/rpc-errors';
-export {
-  isAllowedProtocol,
-  isBlockedIpAddress,
-  isBlockedIpv4,
-  isBlockedIpv6,
-  isIpLiteralHostname,
-  expandIpv6ToGroups,
-} from './domain/url-safety';
-export {
-  parseHttpResponse,
-  dechunkBody,
-  isChunkedTransferEncoding,
-  type ParsedHttpResponse,
-} from './domain/http-response';
-export { extractOpenGraphTags, type OpenGraphData } from './domain/open-graph';
+// url-safety.ts, http-response.ts und open-graph.ts werden bewusst NICHT hier
+// re-exportiert (Nachbesserung G4): der einzige Konsument ist die Edge
+// Function `supabase/functions/parse-accommodation`, und die importiert
+// ohnehin direkt ueber das Deno-Import-Map-Praefix `@anchor/domain/...`, nie
+// ueber `@anchor/shared`. Web/Mobile brauchen diese Module nicht. Getestet
+// werden sie ueber `packages/shared/test/*.test.ts`, die ebenfalls direkt aus
+// `../src/domain/...` importieren — auch das braucht keinen Re-Export hier.

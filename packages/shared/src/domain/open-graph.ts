@@ -13,11 +13,40 @@
  * Task 6, Schritt 1).
  */
 
+import { MAX_PRICE_CENTS } from './price';
+
 export interface OpenGraphData {
   title: string | null;
+  /** `null`, wenn og:image fehlt ODER kein `https`-Bildlink innerhalb der Laengengrenze ist. */
   imageUrl: string | null;
-  /** In Cent, gerundet. `null`, wenn `og:price:amount` fehlt oder nicht als Zahl lesbar ist. */
+  /** In Cent, gerundet. `null`, wenn `og:price:amount` fehlt, nicht lesbar oder unplausibel gross ist. */
   priceAmountCents: number | null;
+}
+
+/**
+ * Obergrenze fuer die Laenge einer aus `og:image` uebernommenen URL. Ohne
+ * diese Grenze koennte eine bis zu ~256-KiB-lange `data:`-URI (die Function
+ * liest maximal 256 KiB Body) ungefiltert in die Datenbank wandern — die
+ * Oberflaechen rendern `image_url` direkt als `<img src>`/`Image source`.
+ * 2048 Zeichen sind fuer eine echte Bild-URL grosszuegig genug (siehe RFC
+ * 3986 / gaengige Browser-/Server-Limits), lassen eine eingebettete
+ * Bild-URL aber weit hinter sich.
+ */
+const MAX_IMAGE_URL_LENGTH = 2048;
+
+/**
+ * Nur `https`-Bildlinks innerhalb der Laengengrenze gelten als sicher genug,
+ * um ungeprueft in `accommodation_options.image_url` zu landen. Weder
+ * `data:`- noch `http:`-URIs kommen durch. Ein nicht als URL parsbarer Wert
+ * gilt ebenfalls als unsicher (fail-closed).
+ */
+function isSafeImageUrl(rawUrl: string): boolean {
+  if (rawUrl.length > MAX_IMAGE_URL_LENGTH) return false;
+  try {
+    return new URL(rawUrl).protocol === 'https:';
+  } catch {
+    return false;
+  }
 }
 
 function decodeHtmlEntities(text: string): string {
@@ -56,23 +85,31 @@ function extractMetaContent(html: string, propertyName: string): string | null {
  * Wandelt eine `og:price:amount`-Rohangabe ("89.50", "89,50") in Cent um.
  * Liefert `null` bei allem, was keine plausible, nicht-negative Zahl ist —
  * eine kaputte Preisangabe darf `price_cents` nicht mit Muell ueberschreiben.
+ *
+ * Die Obergrenze `MAX_PRICE_CENTS` (aus `./price`, dieselbe Grenze wie fuer
+ * die manuelle Preiseingabe) ist hier PFLICHT, nicht nur Kosmetik:
+ * `price_cents` ist in Postgres ein `integer` (int4, max. 2.147.483.647).
+ * Ohne diese Grenze wuerde ein `og:price:amount` wie "999999999999" das
+ * gesamte `update` in der Edge Function mit einem Bereichsfehler scheitern
+ * lassen — und damit wuerde nicht einmal mehr `parse_status` geschrieben.
  */
 function parseOgPriceAmountCents(rawAmount: string): number | null {
   const normalized = rawAmount.replace(',', '.');
   if (!/^\d+(\.\d+)?$/.test(normalized)) return null;
   const parsed = Number(normalized);
   if (!Number.isFinite(parsed) || parsed < 0) return null;
-  return Math.round(parsed * 100);
+  const cents = Math.round(parsed * 100);
+  return cents > MAX_PRICE_CENTS ? null : cents;
 }
 
 export function extractOpenGraphTags(html: string): OpenGraphData {
   const title = extractMetaContent(html, 'og:title');
-  const imageUrl = extractMetaContent(html, 'og:image');
+  const rawImageUrl = extractMetaContent(html, 'og:image');
   const rawPriceAmount = extractMetaContent(html, 'og:price:amount');
 
   return {
     title,
-    imageUrl,
+    imageUrl: rawImageUrl && isSafeImageUrl(rawImageUrl) ? rawImageUrl : null,
     priceAmountCents: rawPriceAmount ? parseOgPriceAmountCents(rawPriceAmount) : null,
   };
 }

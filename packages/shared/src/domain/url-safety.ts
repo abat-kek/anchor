@@ -156,6 +156,28 @@ export function isBlockedIpv6(ip: string): boolean {
     return isBlockedIpv4(ipv4FromLowGroups(g6, g7));
   }
 
+  // NAT64 (RFC 6052), 64:ff9b::/96: bettet eine IPv4-Adresse direkt in die
+  // letzten 32 Bit ein. Steht im Zielnetz ein NAT64-Uebersetzer, waere das
+  // sonst ein Weg, eine interne IPv4-Adresse ueber eine oeffentlich
+  // aussehende IPv6-Adresse zu erreichen.
+  if (g0 === 0x0064 && g1 === 0xff9b && g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0) {
+    return isBlockedIpv4(ipv4FromLowGroups(g6, g7));
+  }
+
+  // 6to4 (RFC 3056), 2002::/16: die IPv4-Adresse steckt in Bits 16-47, also
+  // in den Gruppen 1 und 2 (2002:AABB:CCDD::/48 kodiert AABBCCDD als Hex).
+  if (g0 === 0x2002) {
+    return isBlockedIpv4(ipv4FromLowGroups(g1, g2));
+  }
+
+  // Teredo (RFC 4380), 2001:0000::/32: die Client-IPv4 steckt in den letzten
+  // 32 Bit, aber bitweise invertiert (XOR mit 0xffff je 16-Bit-Gruppe) —
+  // ohne die Entschluesselung wuerde eine eingebettete private Adresse hier
+  // nicht als solche erkannt.
+  if (g0 === 0x2001 && g1 === 0) {
+    return isBlockedIpv4(ipv4FromLowGroups(g6 ^ 0xffff, g7 ^ 0xffff));
+  }
+
   return false;
 }
 

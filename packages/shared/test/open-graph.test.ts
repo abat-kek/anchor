@@ -45,6 +45,20 @@ describe('extractOpenGraphTags', () => {
     ).toBeNull();
   });
 
+  it('kappt eine unplausibel hohe og:price:amount statt einen integer-Ueberlauf zu riskieren (G1)', () => {
+    // price_cents ist int4 (max. 2.147.483.647) — 999999999999 Euro waeren
+    // weit jenseits davon und wuerden ein Datenbank-update ohne diese Kappung
+    // komplett scheitern lassen.
+    expect(
+      extractOpenGraphTags('<meta property="og:price:amount" content="999999999999">').priceAmountCents,
+    ).toBeNull();
+    // Knapp UNTER der Grenze (MAX_PRICE_CENTS = 100_000_000 Cent = 1.000.000,00)
+    // bleibt gueltig.
+    expect(
+      extractOpenGraphTags('<meta property="og:price:amount" content="999999.99">').priceAmountCents,
+    ).toBe(99_999_999);
+  });
+
   it('liefert durchgehend null, wenn keine og:-Tags vorhanden sind (Bot-Abwehrseite wie im Vorbefund)', () => {
     const html = '<html><head><title></title></head><body></body></html>';
     const result = extractOpenGraphTags(html);
@@ -56,5 +70,26 @@ describe('extractOpenGraphTags', () => {
   it('ignoriert einen leeren content-Wert (kein Titel gilt als kein Titel)', () => {
     const html = '<meta property="og:title" content="">';
     expect(extractOpenGraphTags(html).title).toBeNull();
+  });
+
+  it('akzeptiert einen https-Bildlink innerhalb der Laengengrenze (G2)', () => {
+    const html = '<meta property="og:image" content="https://example.com/bild.jpg">';
+    expect(extractOpenGraphTags(html).imageUrl).toBe('https://example.com/bild.jpg');
+  });
+
+  it('lehnt eine data:-URI als og:image ab (G2)', () => {
+    const html = '<meta property="og:image" content="data:image/png;base64,AAAA">';
+    expect(extractOpenGraphTags(html).imageUrl).toBeNull();
+  });
+
+  it('lehnt ein http:-Bild ab (G2)', () => {
+    const html = '<meta property="og:image" content="http://example.com/bild.jpg">';
+    expect(extractOpenGraphTags(html).imageUrl).toBeNull();
+  });
+
+  it('lehnt eine og:image-URL jenseits der Laengengrenze ab (G2)', () => {
+    const overlyLongPath = 'a'.repeat(2100);
+    const html = `<meta property="og:image" content="https://example.com/${overlyLongPath}">`;
+    expect(extractOpenGraphTags(html).imageUrl).toBeNull();
   });
 });
