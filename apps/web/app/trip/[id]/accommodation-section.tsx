@@ -286,16 +286,13 @@ function ChoosePanel({
   onCancelChoose,
   onConfirmChoose,
 }: ChoosePanelProps) {
-  if (pendingChoice) {
-    return (
-      <ConfirmChoice
-        stayTitle={pendingChoice.title}
-        isChoosing={isChoosing}
-        onCancel={onCancelChoose}
-        onConfirm={onConfirmChoose}
-      />
-    );
-  }
+  // Die Rueckfrage erscheint UNTER dem Panel, nicht an seiner Stelle. Auswahlfeld
+  // und Knopf bleiben stehen und werden nur gesperrt. Damit liegt an der Stelle,
+  // die der Nutzer gerade angeklickt hat, weiterhin derselbe — jetzt tote — Knopf:
+  // der zweite Klick eines Doppelklicks verpufft dort, statt auf einem frisch
+  // eingeblendeten "Ja" zu landen und die irreversible Kuerung auszuloesen.
+  const isPending = pendingChoice !== null;
+  const isTriggerDisabled = isPending || !optionIdToChoose;
 
   return (
     <div style={{ marginTop: 16 }}>
@@ -306,6 +303,7 @@ function ChoosePanel({
         id="stay-choice"
         value={optionIdToChoose ?? ''}
         onChange={(e) => onSelect(e.target.value || null)}
+        disabled={isPending}
         style={{ padding: 8, width: '100%', marginBottom: 8 }}
       >
         <option value="">Bitte auswählen</option>
@@ -317,16 +315,24 @@ function ChoosePanel({
       </select>
       <button
         onClick={onRequestChoose}
-        disabled={!optionIdToChoose}
+        disabled={isTriggerDisabled}
         style={{
           padding: 12,
           width: '100%',
           fontSize: 16,
-          cursor: optionIdToChoose ? 'pointer' : 'not-allowed',
+          cursor: isTriggerDisabled ? 'not-allowed' : 'pointer',
         }}
       >
         Diese Unterkunft nehmen wir
       </button>
+      {pendingChoice && (
+        <ConfirmChoice
+          stayTitle={pendingChoice.title}
+          isChoosing={isChoosing}
+          onCancel={onCancelChoose}
+          onConfirm={onConfirmChoose}
+        />
+      )}
     </div>
   );
 }
@@ -360,7 +366,12 @@ function ConfirmChoice({ stayTitle, isChoosing, onCancel, onConfirm }: ConfirmCh
       <button
         onClick={onCancel}
         disabled={isChoosing}
-        style={{ padding: 8, width: '100%', marginTop: 8, cursor: 'pointer' }}
+        style={{
+          padding: 8,
+          width: '100%',
+          marginTop: 8,
+          cursor: isChoosing ? 'not-allowed' : 'pointer',
+        }}
       >
         Abbrechen
       </button>
