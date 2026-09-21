@@ -6,6 +6,7 @@ export { tallyVotes, winningOption, type VoteTally } from './domain/voting';
 export { computeBalances, simplifyDebts } from './domain/balances';
 export { canSendNudge } from './domain/nudge';
 export { validateDateOptionInput, type DateOptionValidation } from './domain/date-options';
+export { formatIsoDateGerman, parseIsoDate, startOfToday, toIsoDate } from './domain/iso-date';
 export { resolveAccommodationWinner, type AccommodationTally } from './domain/accommodation';
 export {
   EMPTY_ACCOMMODATION_STATE,

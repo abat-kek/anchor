@@ -5,15 +5,18 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { supabase } from '../../src/lib/supabase';
 import { getParticipant } from '../../src/lib/participant-store';
 import { AccommodationSection } from '../../src/features/trip/AccommodationSection';
+import { DateField } from '../../src/features/trip/DateField';
 import {
   EMPTY_ACCOMMODATION_STATE,
+  parseIsoDate,
+  startOfToday,
+  toIsoDate,
   translateRpcError,
   validateDateOptionInput,
   type AccommodationState,
@@ -145,19 +148,24 @@ export default function TripStatus() {
     }
   }
 
+  // Ein spaeter gewaehltes Startdatum kann ein bereits gewaehltes Ende
+  // ueberholen. Dann faellt das Ende weg, statt ungueltig stehen zu bleiben.
+  function setProposeStartDate(isoDate: string) {
+    setProposeStart(isoDate);
+    if (proposeEnd && proposeEnd < isoDate) setProposeEnd('');
+  }
+
+  // Der Kalenderdialog laesst weder ein fremdes Format noch einen Tag vor heute
+  // zu; validateDateOptionInput bleibt trotzdem stehen, weil ein Bildschirm ueber
+  // Mitternacht offen liegen bleiben kann und die serverseitige Pruefung ohnehin gilt.
   async function proposeDateOption() {
     if (!participantId) return;
-    const isoDatePattern = /^\d{4}-\d{2}-\d{2}$/;
-    if (!isoDatePattern.test(proposeStart) || !isoDatePattern.test(proposeEnd)) {
-      setProposeError('Bitte das Format JJJJ-MM-TT verwenden (z. B. 2026-03-14).');
-      return;
-    }
-    const today = new Date().toISOString().slice(0, 10);
+    const today = toIsoDate(startOfToday());
     const validation = validateDateOptionInput(proposeStart, proposeEnd, today);
     if (!validation.ok) {
       setProposeError(
         validation.reason === 'missing_dates'
-          ? 'Bitte beide Daten im Format JJJJ-MM-TT angeben.'
+          ? 'Bitte beide Daten angeben.'
           : validation.reason === 'end_before_start'
             ? 'Das Enddatum muss nach dem Startdatum liegen.'
             : 'Das Startdatum darf nicht in der Vergangenheit liegen.',
@@ -199,6 +207,11 @@ export default function TripStatus() {
       </View>
     );
   }
+
+  // Untergrenzen des Kalenderdialogs: heute fuer den Start, das gewaehlte
+  // Startdatum fuer das Ende. Damit ist "Ende vor Start" gar nicht waehlbar.
+  const earliestStart = startOfToday();
+  const earliestEnd = parseIsoDate(proposeStart) ?? earliestStart;
 
   const status = state.trip?.status ?? 'collecting';
   const isLocked = DATE_DECIDED_STATUSES.includes(status);
@@ -254,21 +267,21 @@ export default function TripStatus() {
         <View style={styles.proposeSection}>
           <Text style={styles.sectionTitle}>Eigenen Termin vorschlagen</Text>
           <View style={styles.proposeRow}>
-            <TextInput
+            <DateField
+              label="Startdatum"
               value={proposeStart}
-              onChangeText={setProposeStart}
-              placeholder="Start JJJJ-MM-TT"
-              placeholderTextColor="#8a8a94"
-              accessibilityLabel="Startdatum"
-              style={styles.proposeInput}
+              placeholder="Start wählen"
+              minimumDate={earliestStart}
+              isDisabled={isSubmitting}
+              onChange={setProposeStartDate}
             />
-            <TextInput
+            <DateField
+              label="Enddatum"
               value={proposeEnd}
-              onChangeText={setProposeEnd}
-              placeholder="Ende JJJJ-MM-TT"
-              placeholderTextColor="#8a8a94"
-              accessibilityLabel="Enddatum"
-              style={styles.proposeInput}
+              placeholder="Ende wählen"
+              minimumDate={earliestEnd}
+              isDisabled={isSubmitting}
+              onChange={setProposeEnd}
             />
           </View>
           <Pressable style={styles.proposeButton} onPress={proposeDateOption} disabled={isSubmitting}>
@@ -341,15 +354,6 @@ const styles = StyleSheet.create({
   error: { fontSize: 14, color: '#ff6b6b' },
   proposeSection: { gap: 8, marginTop: 8 },
   proposeRow: { flexDirection: 'row', gap: 8 },
-  proposeInput: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: '#3a3a44',
-    borderRadius: 8,
-    padding: 10,
-    color: '#fff',
-    backgroundColor: '#17171d',
-  },
   proposeButton: {
     backgroundColor: '#2f6fed',
     paddingVertical: 12,
