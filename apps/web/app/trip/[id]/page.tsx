@@ -1,11 +1,17 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { getParticipant } from '@/lib/participant-store';
-import { translateRpcError, validateDateOptionInput, type Availability } from '@anchor/shared';
-import { AccommodationSection, type AccommodationState } from './accommodation-section';
+import {
+  EMPTY_ACCOMMODATION_STATE,
+  translateRpcError,
+  validateDateOptionInput,
+  type AccommodationState,
+  type Availability,
+} from '@anchor/shared';
+import { AccommodationSection } from './accommodation-section';
 
 interface OptionRow {
   id: string;
@@ -46,12 +52,6 @@ const POLL_MS = 4000;
 const DATE_DECIDED_STATUSES = ['locked', 'accommodation', 'active', 'done'];
 const ACCOMMODATION_EDITABLE_STATUSES = ['locked', 'accommodation'];
 
-const EMPTY_ACCOMMODATION: AccommodationState = {
-  options: [],
-  my_votes: [],
-  chosen_accommodation: null,
-};
-
 export default function TripPage() {
   const { id: tripId } = useParams<{ id: string }>();
   const [participantId, setParticipantId] = useState<string | null>(null);
@@ -62,8 +62,21 @@ export default function TripPage() {
   const [proposeError, setProposeError] = useState<string | null>(null);
   const [isProposing, setIsProposing] = useState(false);
 
+  // Laufende Nummer der juengsten Anfrage. get_trip_state wird vom 4-Sekunden-Poll
+  // und von jeder Schreibaktion angestossen; die Antworten koennen sich ueberholen.
+  // Ohne diesen Zaehler wirft eine verspaetete Poll-Antwort, die vor einer Stimmabgabe
+  // losgeschickt wurde, das frische Ergebnis wieder auf den alten Stand zurueck.
+  const latestRefreshRef = useRef(0);
+
   const refresh = useCallback(async (pid: string) => {
+    const requestNumber = latestRefreshRef.current + 1;
+    latestRefreshRef.current = requestNumber;
+
     const { data, error } = await supabase.rpc('get_trip_state', { p_participant_id: pid });
+
+    // Inzwischen ist eine neuere Anfrage unterwegs oder schon angekommen: verwerfen.
+    if (requestNumber !== latestRefreshRef.current) return;
+
     if (error) {
       setError(translateRpcError(error.message));
       return;
@@ -242,7 +255,7 @@ export default function TripPage() {
       {isLocked && (
         <AccommodationSection
           participantId={participantId}
-          accommodation={state?.accommodation ?? EMPTY_ACCOMMODATION}
+          accommodation={state?.accommodation ?? EMPTY_ACCOMMODATION_STATE}
           canEdit={ACCOMMODATION_EDITABLE_STATUSES.includes(status)}
           onChanged={refreshMine}
         />

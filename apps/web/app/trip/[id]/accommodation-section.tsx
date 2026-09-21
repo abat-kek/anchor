@@ -1,36 +1,17 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { resolveAccommodationWinner, translateRpcError } from '@anchor/shared';
-
-export interface AccommodationOptionRow {
-  id: string;
-  raw_url: string;
-  title: string;
-  image_url: string | null;
-  price_cents: number | null;
-  currency: string;
-  parse_status: string;
-  created_at: string;
-  vote_count: number;
-}
-
-export interface ChosenAccommodation {
-  id: string;
-  raw_url: string;
-  title: string;
-  image_url: string | null;
-  price_cents: number | null;
-  currency: string;
-}
-
-/** Der `accommodation`-Block aus get_trip_state (Migration 0011). */
-export interface AccommodationState {
-  options: AccommodationOptionRow[];
-  my_votes: string[];
-  chosen_accommodation: ChosenAccommodation | null;
-}
+import {
+  describePriceParseFailure,
+  formatPrice,
+  parsePriceInput,
+  resolveAccommodationWinner,
+  translateRpcError,
+  type AccommodationOptionRow,
+  type AccommodationState,
+  type ChosenAccommodation,
+} from '@anchor/shared';
 
 interface AccommodationSectionProps {
   participantId: string;
@@ -47,28 +28,6 @@ const cardStyle = {
   marginBottom: 12,
 } as const;
 
-type PriceParseResult = { ok: true; priceCents: number | null } | { ok: false };
-
-/** Eingabe in Euro ("89", "89,50", "89.50") in Cent umrechnen. Leer bedeutet kein Preis. */
-export function parsePriceInput(rawPrice: string): PriceParseResult {
-  const trimmed = rawPrice.trim();
-  if (trimmed === '') return { ok: true, priceCents: null };
-
-  const normalized = trimmed.replace(',', '.');
-  if (!/^\d+([.]\d{1,2})?$/.test(normalized)) return { ok: false };
-
-  return { ok: true, priceCents: Math.round(Number(normalized) * 100) };
-}
-
-export function formatPrice(priceCents: number | null, currency: string): string | null {
-  if (priceCents === null) return null;
-  try {
-    return new Intl.NumberFormat('de-DE', { style: 'currency', currency }).format(priceCents / 100);
-  } catch {
-    return `${(priceCents / 100).toFixed(2)} ${currency}`;
-  }
-}
-
 export function AccommodationSection({
   participantId,
   accommodation,
@@ -81,9 +40,23 @@ export function AccommodationSection({
   const [addError, setAddError] = useState<string | null>(null);
   const [isAdding, setIsAdding] = useState(false);
   const [votingOptionId, setVotingOptionId] = useState<string | null>(null);
-  const [selectedOptionId, setSelectedOptionId] = useState<string | null>(null);
   const [isChoosing, setIsChoosing] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  // Die sichtbaren Sperren sind State (sie sollen neu rendern), die eigentlichen
+  // Doppelklick-Guards sind Refs: zwei Klick-Events in derselben React-Batch
+  // wuerden denselben State-Closure-Wert lesen und beide durchkommen.
+  const isAddingRef = useRef(false);
+  const votingOptionIdRef = useRef<string | null>(null);
+  const isChoosingRef = useRef(false);
+
+  // null = der Nutzer hat das Auswahlfeld noch nicht angefasst, es gilt die Vorbelegung.
+  // Der Wrapper-Objekt-Zustand erlaubt es, bewusst "nichts" zu waehlen.
+  const [userChoice, setUserChoice] = useState<{ optionId: string | null } | null>(null);
+
+  // Was der Nutzer angeklickt hat, festgehalten im Moment des Klicks. Erst die
+  // Bestaetigung loest den RPC aus, und sie nennt den Titel dieser festen ID.
+  const [pendingChoiceId, setPendingChoiceId] = useState<string | null>(null);
 
   const options = accommodation.options;
   const myVotes = new Set(accommodation.my_votes);
@@ -94,18 +67,27 @@ export function AccommodationSection({
       createdAt: option.created_at,
     })),
   );
-  const optionIdToChoose = selectedOptionId ?? winnerOptionId;
+
+  // Die Vorbelegung folgt dem Gewinner aus dem Poll, solange der Nutzer nichts
+  // eigenes gewaehlt hat. Sie darf sich also zwischen Blick und Klick aendern —
+  // deshalb kuert der Knopf nicht direkt, sondern haelt die ID fest und laesst
+  // den Nutzer den Titel bestaetigen (choose_accommodation ist irreversibel).
+  const optionIdToChoose = userChoice ? userChoice.optionId : winnerOptionId;
+  const pendingChoice = options.find((option) => option.id === pendingChoiceId) ?? null;
 
   async function addOption() {
     // Guard gegen Doppelklick: add_accommodation_option ist nicht idempotent,
     // ein zweiter Klick legt denselben Vorschlag ein zweites Mal an.
-    if (isAdding) return;
+    if (isAddingRef.current) return;
+
     const parsedPrice = parsePriceInput(stayPrice);
     if (!parsedPrice.ok) {
-      setAddError('Bitte einen Preis wie 89 oder 89,50 angeben.');
+      setAddError(describePriceParseFailure(parsedPrice.reason));
       return;
     }
     setAddError(null);
+
+    isAddingRef.current = true;
     setIsAdding(true);
     try {
       const { error } = await supabase.rpc('add_accommodation_option', {
@@ -123,6 +105,7 @@ export function AccommodationSection({
       setStayPrice('');
       onChanged();
     } finally {
+      isAddingRef.current = false;
       setIsAdding(false);
     }
   }
@@ -130,7 +113,8 @@ export function AccommodationSection({
   async function toggleVote(optionId: string) {
     // Guard gegen Doppelklick: zwei schnelle Klicks wuerden die Stimme setzen und
     // sofort wieder zuruecknehmen, ohne dass der Nutzer die Umschaltung bemerkt.
-    if (votingOptionId !== null) return;
+    if (votingOptionIdRef.current !== null) return;
+    votingOptionIdRef.current = optionId;
     setVotingOptionId(optionId);
     try {
       const { error } = await supabase.rpc('toggle_accommodation_vote', {
@@ -140,6 +124,7 @@ export function AccommodationSection({
       setActionError(error ? translateRpcError(error.message) : null);
       if (!error) onChanged();
     } finally {
+      votingOptionIdRef.current = null;
       setVotingOptionId(null);
     }
   }
@@ -147,7 +132,8 @@ export function AccommodationSection({
   async function chooseOption(optionId: string) {
     // Guard gegen Doppelklick: choose_accommodation schaltet den Trip auf 'active',
     // der zweite Aufruf faende die Unterkunftsphase nicht mehr vor und wuerde fehlschlagen.
-    if (isChoosing) return;
+    if (isChoosingRef.current) return;
+    isChoosingRef.current = true;
     setIsChoosing(true);
     try {
       const { error } = await supabase.rpc('choose_accommodation', {
@@ -155,8 +141,12 @@ export function AccommodationSection({
         p_option_id: optionId,
       });
       setActionError(error ? translateRpcError(error.message) : null);
-      if (!error) onChanged();
+      if (!error) {
+        setPendingChoiceId(null);
+        onChanged();
+      }
     } finally {
+      isChoosingRef.current = false;
       setIsChoosing(false);
     }
   }
@@ -190,9 +180,15 @@ export function AccommodationSection({
         <ChoosePanel
           options={options}
           optionIdToChoose={optionIdToChoose}
+          pendingChoice={pendingChoice}
           isChoosing={isChoosing}
-          onSelect={setSelectedOptionId}
-          onChoose={() => optionIdToChoose && void chooseOption(optionIdToChoose)}
+          onSelect={(optionId) => {
+            setUserChoice({ optionId });
+            setPendingChoiceId(null);
+          }}
+          onRequestChoose={() => setPendingChoiceId(optionIdToChoose)}
+          onCancelChoose={() => setPendingChoiceId(null)}
+          onConfirmChoose={() => pendingChoice && void chooseOption(pendingChoice.id)}
         />
       )}
 
@@ -271,19 +267,36 @@ function StayOptionCard({
 interface ChoosePanelProps {
   options: AccommodationOptionRow[];
   optionIdToChoose: string | null;
+  /** Der im Klickmoment festgehaltene Vorschlag, oder null solange nichts ansteht. */
+  pendingChoice: AccommodationOptionRow | null;
   isChoosing: boolean;
   onSelect: (optionId: string | null) => void;
-  onChoose: () => void;
+  onRequestChoose: () => void;
+  onCancelChoose: () => void;
+  onConfirmChoose: () => void;
 }
 
 function ChoosePanel({
   options,
   optionIdToChoose,
+  pendingChoice,
   isChoosing,
   onSelect,
-  onChoose,
+  onRequestChoose,
+  onCancelChoose,
+  onConfirmChoose,
 }: ChoosePanelProps) {
-  const isDisabled = isChoosing || !optionIdToChoose;
+  if (pendingChoice) {
+    return (
+      <ConfirmChoice
+        stayTitle={pendingChoice.title}
+        isChoosing={isChoosing}
+        onCancel={onCancelChoose}
+        onConfirm={onConfirmChoose}
+      />
+    );
+  }
+
   return (
     <div style={{ marginTop: 16 }}>
       <label htmlFor="stay-choice" style={{ display: 'block', marginBottom: 4 }}>
@@ -303,16 +316,53 @@ function ChoosePanel({
         ))}
       </select>
       <button
-        onClick={onChoose}
-        disabled={isDisabled}
+        onClick={onRequestChoose}
+        disabled={!optionIdToChoose}
         style={{
           padding: 12,
           width: '100%',
           fontSize: 16,
-          cursor: isDisabled ? 'not-allowed' : 'pointer',
+          cursor: optionIdToChoose ? 'pointer' : 'not-allowed',
         }}
       >
-        {isChoosing ? '…' : 'Diese Unterkunft nehmen wir'}
+        Diese Unterkunft nehmen wir
+      </button>
+    </div>
+  );
+}
+
+interface ConfirmChoiceProps {
+  stayTitle: string;
+  isChoosing: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}
+
+function ConfirmChoice({ stayTitle, isChoosing, onCancel, onConfirm }: ConfirmChoiceProps) {
+  return (
+    <div style={{ ...cardStyle, marginTop: 16, borderColor: '#2a7' }}>
+      <p style={{ marginTop: 0 }}>
+        Wirklich <strong>{stayTitle}</strong> küren? Danach lässt sich die Unterkunft nicht mehr
+        ändern.
+      </p>
+      <button
+        onClick={onConfirm}
+        disabled={isChoosing}
+        style={{
+          padding: 12,
+          width: '100%',
+          fontSize: 16,
+          cursor: isChoosing ? 'not-allowed' : 'pointer',
+        }}
+      >
+        {isChoosing ? '…' : `Ja, ${stayTitle} nehmen wir`}
+      </button>
+      <button
+        onClick={onCancel}
+        disabled={isChoosing}
+        style={{ padding: 8, width: '100%', marginTop: 8, cursor: 'pointer' }}
+      >
+        Abbrechen
       </button>
     </div>
   );
