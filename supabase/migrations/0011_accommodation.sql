@@ -28,8 +28,13 @@ create table public.accommodation_votes (
 );
 alter table public.accommodation_votes enable row level security;
 
--- set null statt cascade: ein geloeschter Teilnehmer darf die Kuerung nicht mitreissen,
--- falls seine Option gerade die gekuerte ist (added_by_participant_id kaskadiert bewusst weiter).
+-- set null statt cascade: ein geloeschter Vorschlag soll den Trip nicht mitloeschen,
+-- die Kuerung faellt dabei aber trotzdem weg — set null verhindert nur den Fehler,
+-- nicht den Verlust. Die Kette ist: Teilnehmer geloescht -> seine Option kaskadiert
+-- (added_by_participant_id, oben) -> chosen_accommodation_id wird null, waehrend der
+-- Trip auf status='active' stehen bleibt. Beide Oberflaechen zeigen dann die
+-- Optionsliste ohne Handlungsmoeglichkeit. Heute unerreichbar, weil es keinen
+-- Loesch-RPC fuer Teilnehmer gibt; wenn einer kommt, muss er diesen Fall aufraeumen.
 alter table public.trips
   add column chosen_accommodation_id uuid references public.accommodation_options(id) on delete set null;
 
