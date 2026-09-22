@@ -50,6 +50,8 @@ const MAX_RAW_RESPONSE_BYTES = MAX_BODY_BYTES + 65_536;
 const MAX_REDIRECTS = 5;
 const CONNECT_TIMEOUT_MS = 5_000;
 const READ_TIMEOUT_MS = 6_000;
+/** Zeitlimit fuer die eigene DNS-Aufloesung (A+AAAA), NACHBESSERUNG Runde 2. */
+const DNS_TIMEOUT_MS = 5_000;
 /** Harte Obergrenze fuer die GESAMTE Operation, ueber alle Weiterleitungen hinweg. */
 const OVERALL_DEADLINE_MS = 12_000;
 
@@ -129,6 +131,11 @@ function withTimeout<T>(pending: Promise<T>, timeoutMs: number): Promise<T> {
   });
 }
 
+/** Verbleibende Millisekunden bis zur absoluten Deadline (kann negativ sein). */
+function remainingMs(deadline: number): number {
+  return deadline - Date.now();
+}
+
 /**
  * Loest `hostname` selbst auf (A + AAAA) und prueft JEDE zurueckgegebene
  * Adresse gegen die private/lokale Sperrliste (siehe
@@ -139,17 +146,42 @@ function withTimeout<T>(pending: Promise<T>, timeoutMs: number): Promise<T> {
  * Fail-closed ueber die gesamte Antwort: eine einzelne unsichere Adresse in
  * einer Split-Antwort (unterschiedliche Records fuer A und AAAA, oder ein
  * DNS-Server, der mehrere Adressen zurueckgibt) sperrt den ganzen Host.
+ *
+ * NACHBESSERUNG Runde 2: `deadline` begrenzt jetzt AUCH die Namensaufloesung
+ * selbst — vorher war dies die einzige Netzwerkphase ohne eigenes Zeitlimit.
+ * Ein absichtlich haengender autoritativer DNS-Server (unter Kontrolle des
+ * Angreifers, weil `raw_url` frei gewaehlt wird) haette pro Aufruf bis zu der
+ * Zeit ueberziehen koennen, die `Deno.resolveDns` intern ohne eigenes Limit
+ * wartet — der naechste Schleifenkopf haette das erst beim naechsten Hop
+ * abgefangen, der Sockel fuer einen einzelnen Versuch waere also hoeher als
+ * `OVERALL_DEADLINE_MS` gewesen. `withTimeout` bricht jetzt spaetestens nach
+ * `Math.min(DNS_TIMEOUT_MS, verbleibende Zeit bis deadline)` ab; ein
+ * Zeitlimit hier bedeutet schlicht "kein sicherer Host gefunden" (`null`),
+ * genau wie ein leeres oder gesperrtes Ergebnis.
  */
-async function resolveSafeConnectIp(hostname: string): Promise<string | null> {
+async function resolveSafeConnectIp(hostname: string, deadline: number): Promise<string | null> {
   if (isIpLiteralHostname(hostname)) {
     const bare = stripIpv6Brackets(hostname);
     return isBlockedIpAddress(bare) ? null : bare;
   }
 
-  const [ipv4Result, ipv6Result] = await Promise.allSettled([
-    Deno.resolveDns(hostname, 'A'),
-    Deno.resolveDns(hostname, 'AAAA'),
-  ]);
+  const dnsTimeout = Math.min(DNS_TIMEOUT_MS, remainingMs(deadline));
+  if (dnsTimeout <= 0) return null;
+
+  let ipv4Result: PromiseSettledResult<string[]>;
+  let ipv6Result: PromiseSettledResult<string[]>;
+  try {
+    [ipv4Result, ipv6Result] = await withTimeout(
+      Promise.allSettled([
+        Deno.resolveDns(hostname, 'A'),
+        Deno.resolveDns(hostname, 'AAAA'),
+      ]),
+      dnsTimeout,
+    );
+  } catch {
+    return null; // DNS-Aufloesung hat die (verbleibende) Deadline gerissen
+  }
+
   const ipv4 = ipv4Result.status === 'fulfilled' ? ipv4Result.value : [];
   const ipv6 = ipv6Result.status === 'fulfilled' ? ipv6Result.value : [];
   const allIps = [...ipv4, ...ipv6];
@@ -157,11 +189,6 @@ async function resolveSafeConnectIp(hostname: string): Promise<string | null> {
   if (allIps.some((ip) => isBlockedIpAddress(ip))) return null;
 
   return allIps[0] ?? null;
-}
-
-/** Verbleibende Millisekunden bis zur absoluten Deadline (kann negativ sein). */
-function remainingMs(deadline: number): number {
-  return deadline - Date.now();
 }
 
 /**
@@ -342,7 +369,7 @@ async function fetchHtmlSafely(startUrl: string): Promise<string | null> {
     // keine reale Unterkunfts-Seite haengt an einem exotischen Port.
     if (currentUrl.port !== '') return null;
 
-    const connectIp = await resolveSafeConnectIp(currentUrl.hostname);
+    const connectIp = await resolveSafeConnectIp(currentUrl.hostname, deadline);
     if (!connectIp) return null;
 
     // `URL.pathname` ist fuer `https:` nie leer (mindestens "/"), der frueher
@@ -410,6 +437,24 @@ Deno.serve(async (req) => {
     .maybeSingle();
   if (participantError) return new Response(participantError.message, { status: 500 });
   if (!participant) return new Response('invalid_participant', { status: 404 });
+
+  // NACHBESSERUNG Runde 2, Punkt 1: dieselbe Statusprüfung wie
+  // `toggle_accommodation_vote` (`0011_accommodation.sql:105-108`) — ein Trip,
+  // der laengst auf `active` oder `done` steht, ist nicht mehr in der
+  // Unterkunftsphase, und diese Function darf dort keine Zeile mehr
+  // beschreiben. Vorher hat `index.ts` `trips` an keiner Stelle angefasst;
+  // eine Option mit `parse_status = 'manual'` in einem abgeschlossenen Trip
+  // waere also weiterhin abgeholt und geschrieben worden.
+  const { data: trip, error: tripError } = await supabase
+    .from('trips')
+    .select('status')
+    .eq('id', participant.trip_id)
+    .maybeSingle();
+  if (tripError) return new Response(tripError.message, { status: 500 });
+  if (!trip) return new Response('invalid_participant', { status: 404 });
+  if (trip.status !== 'locked' && trip.status !== 'accommodation') {
+    return new Response('trip_not_in_accommodation_phase', { status: 409 });
+  }
 
   const { data: option, error: fetchError } = await supabase
     .from('accommodation_options')
