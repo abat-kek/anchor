@@ -6,6 +6,8 @@ import { supabase } from '@/lib/supabase';
 import { getParticipant } from '@/lib/participant-store';
 import {
   EMPTY_ACCOMMODATION_STATE,
+  startOfToday,
+  toIsoDate,
   translateRpcError,
   validateDateOptionInput,
   type AccommodationState,
@@ -57,6 +59,9 @@ export default function TripPage() {
   const [participantId, setParticipantId] = useState<string | null>(null);
   const [state, setState] = useState<TripState | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Fehler einzelner Aktionen (Verfuegbarkeit, Zusage). Bewusst getrennt von
+  // `error`: der ersetzt die ganze Seite, ein missglueckter Klick darf das nicht.
+  const [actionError, setActionError] = useState<string | null>(null);
   const [proposeStart, setProposeStart] = useState('');
   const [proposeEnd, setProposeEnd] = useState('');
   const [proposeError, setProposeError] = useState<string | null>(null);
@@ -81,6 +86,10 @@ export default function TripPage() {
       setError(translateRpcError(error.message));
       return;
     }
+    // Der Fehlerbildschirm ersetzt die ganze Seite. Ohne dieses Raeumen bliebe er
+    // bis zum Neuladen stehen, obwohl der 4-Sekunden-Poll laengst wieder Antworten
+    // liefert — ein einzelner Aussetzer auf Mobilfunk legte die Seite dauerhaft lahm.
+    setError(null);
     setState(data as unknown as TripState);
   }, []);
 
@@ -101,20 +110,32 @@ export default function TripPage() {
 
   async function setAvailability(optionId: string, availability: Availability) {
     if (!participantId) return;
-    await supabase.rpc('set_availability', {
+    setActionError(null);
+    const { error: rpcError } = await supabase.rpc('set_availability', {
       p_participant_id: participantId,
       p_date_option_id: optionId,
       p_availability: availability,
     });
+    // Ohne diese Auswertung malt der Poll den alten Zustand zurueck und der Klick
+    // wirkt, als sei er verpufft — genau wie mobil wird der Fehler benannt.
+    if (rpcError) {
+      setActionError(translateRpcError(rpcError.message));
+      return;
+    }
     void refresh(participantId);
   }
 
   async function toggleCommit() {
     if (!participantId || !state?.me) return;
-    await supabase.rpc('set_commitment', {
+    setActionError(null);
+    const { error: rpcError } = await supabase.rpc('set_commitment', {
       p_participant_id: participantId,
       p_is_committed: !state.me.is_committed,
     });
+    if (rpcError) {
+      setActionError(translateRpcError(rpcError.message));
+      return;
+    }
     void refresh(participantId);
   }
 
@@ -126,7 +147,11 @@ export default function TripPage() {
 
   async function proposeDateOption() {
     if (!participantId || isProposing) return;
-    const today = new Date().toISOString().slice(0, 10);
+    // Lokales Kalenderdatum, nicht `toISOString()`: das rechnet in UTC und haelt
+    // in Deutschland zwischen Mitternacht und 02:00 (MESZ) noch den Vortag fuer
+    // heute — ein Start, den `propose_date_option` danach mit `start_in_past`
+    // ablehnt. Derselbe Helfer wie in der App.
+    const today = toIsoDate(startOfToday());
     const validation = validateDateOptionInput(proposeStart, proposeEnd, today);
     if (!validation.ok) {
       setProposeError(describeDateValidation(validation.reason));
@@ -221,6 +246,8 @@ export default function TripPage() {
           ))}
         </div>
       ))}
+
+      {actionError && <p style={{ color: 'crimson' }}>{actionError}</p>}
 
       {!isLocked && (
         <div style={{ marginTop: 16, marginBottom: 16 }}>

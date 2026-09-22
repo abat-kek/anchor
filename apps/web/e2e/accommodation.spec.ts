@@ -1,10 +1,7 @@
 import { test, expect } from '@playwright/test';
-import { createClient } from '@supabase/supabase-js';
+import { admin, cleanupTrackedRows, trackGroup, trackTrip } from './support/test-supabase';
 
-const admin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
+test.afterEach(cleanupTrackedRows);
 
 test('guest proposes two stays, approval-votes, retracts a vote, and crowns the winner', async ({
   page,
@@ -13,11 +10,13 @@ test('guest proposes two stays, approval-votes, retracts a vote, and crowns the 
   // Test nicht das Ziel, nur die Voraussetzung dafuer, dass die Unterkunftsphase startet.
   const { data: group } = await admin
     .from('groups').insert({ name: 'E2E-Accommodation-Crew' }).select('id').single();
+  trackGroup(group!.id);
   const future = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
   const { data: trip } = await admin
     .from('trips')
     .insert({ group_id: group!.id, title: 'E2E Accommodation Trip', deadline: future })
     .select('id, share_token').single();
+  trackTrip(trip!.id);
   await admin.from('trips').update({ status: 'locked' }).eq('id', trip!.id);
 
   // Act 1: Gast tritt ueber den Join-Link bei.

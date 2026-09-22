@@ -1,19 +1,18 @@
 import { test, expect } from '@playwright/test';
-import { createClient } from '@supabase/supabase-js';
+import { admin, cleanupTrackedRows, trackGroup, trackTrip } from './support/test-supabase';
 
-const admin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
+test.afterEach(cleanupTrackedRows);
 
 test('guest joins, commits, and trip auto-locks after deadline', async ({ page, request }) => {
   // Arrange: Trip mit Deadline in der Vergangenheit + Terminfenster.
   const { data: group } = await admin.from('groups').insert({ name: 'E2E-Crew' }).select('id').single();
+  trackGroup(group!.id);
   const past = new Date(Date.now() - 60_000).toISOString();
   const { data: trip } = await admin
     .from('trips')
     .insert({ group_id: group!.id, title: 'E2E Trip', deadline: past })
     .select('id, share_token').single();
+  trackTrip(trip!.id);
   const { data: opts } = await admin.from('trip_date_options').insert([
     { trip_id: trip!.id, start_date: '2026-03-14', end_date: '2026-03-16' },
     { trip_id: trip!.id, start_date: '2026-03-21', end_date: '2026-03-23' },

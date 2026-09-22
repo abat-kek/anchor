@@ -21,6 +21,19 @@ interface AccommodationSectionProps {
   onChanged: () => void;
 }
 
+/**
+ * Der Ja-Knopf der Kuerungs-Rueckfrage reagiert die ersten Millisekunden nicht.
+ * Dieselbe Zahl wie `CONFIRM_ARM_MS` in der App
+ * (apps/mobile/src/features/trip/AccommodationSection.tsx) — beide Oberflaechen
+ * sollen gegen denselben Doppelklick gleich lange taub sein.
+ *
+ * Die Frist muss laenger sein als zwei Dinge zusammen: der klassische Doppelklick
+ * (zweiter Klick nach 100-250 ms) und die Laufzeit des `scrollIntoView`-Sprungs
+ * unten in ConfirmChoice (300-500 ms), waehrend dessen die Rueckfragekarte unter
+ * den Finger wandert. 600 ms deckt beides ab.
+ */
+const CONFIRM_ARM_MS = 600;
+
 const cardStyle = {
   border: '1px solid #ccc',
   borderRadius: 6,
@@ -287,10 +300,13 @@ function ChoosePanel({
   onConfirmChoose,
 }: ChoosePanelProps) {
   // Die Rueckfrage erscheint UNTER dem Panel, nicht an seiner Stelle. Auswahlfeld
-  // und Knopf bleiben stehen und werden nur gesperrt. Damit liegt an der Stelle,
-  // die der Nutzer gerade angeklickt hat, weiterhin derselbe — jetzt tote — Knopf:
-  // der zweite Klick eines Doppelklicks verpufft dort, statt auf einem frisch
-  // eingeblendeten "Ja" zu landen und die irreversible Kuerung auszuloesen.
+  // und Knopf bleiben stehen und werden nur gesperrt. An der Stelle, die der
+  // Nutzer gerade angeklickt hat, liegt damit weiterhin derselbe — jetzt tote —
+  // Knopf.
+  //
+  // Diese Geometrie traegt aber NICHT allein: ConfirmChoice zentriert sich per
+  // `scrollIntoView` und schiebt das "Ja" dabei genau auf diese Stelle. Gegen den
+  // zweiten Klick schuetzt deshalb die Zeitsperre `CONFIRM_ARM_MS` dort.
   const isPending = pendingChoice !== null;
   const isTriggerDisabled = isPending || !optionIdToChoose;
 
@@ -347,19 +363,33 @@ interface ConfirmChoiceProps {
 function ConfirmChoice({ stayTitle, isChoosing, onCancel, onConfirm }: ConfirmChoiceProps) {
   const cardRef = useRef<HTMLDivElement>(null);
 
+  // Zeitsperre gegen den zweiten Klick eines Doppelklicks. Sie ist hier die
+  // eigentliche Absicherung, nicht bloss eine Zugabe: der Sprung weiter unten
+  // zieht die Karte in die Bildschirmmitte, also genau dorthin, wo der Finger
+  // gerade den Ausloeser getroffen hat. Auf Geometrie ist im Web deshalb kein
+  // Verlass — anders als in der App, die die Karte vom Trefferpunkt wegschiebt.
+  const [isArmed, setIsArmed] = useState(false);
+
   // Die Rueckfrage erscheint unter dem Ausloeser und liegt auf dem Telefon damit
-  // leicht unterhalb des Sichtfelds. Ohne diesen Effekt taete sich fuer den Nutzer
+  // leicht unterhalb des Sichtfelds. Ohne den Sprung taete sich fuer den Nutzer
   // sichtbar nichts: der Knopf wird grau, die Rueckfrage steht unter dem Falz.
-  // Reiner DOM-Effekt beim Einblenden, kein State — die Komponente wird nur
-  // gerendert, solange eine Kuerung ansteht.
+  // Die Komponente wird nur gerendert, solange eine Kuerung ansteht — mit ihr
+  // faellt also auch `isArmed` zurueck auf `false`, jede Rueckfrage beginnt taub.
   useEffect(() => {
     const card = cardRef.current;
-    if (!card) return;
-    // Erst den Fokus setzen (fuer Screenreader und Tastatur), ohne dabei den
-    // Sprung auszuloesen, dann weich zentrieren.
-    card.focus({ preventScroll: true });
-    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (card) {
+      // Erst den Fokus setzen (fuer Screenreader und Tastatur), ohne dabei den
+      // Sprung auszuloesen, dann weich zentrieren.
+      card.focus({ preventScroll: true });
+      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    // setState im Timeout, nicht im Effektkoerper: der React-Compiler verbietet
+    // das synchrone setState im Renderpfad, der verzoegerte Aufruf ist erlaubt.
+    const armTimer = setTimeout(() => setIsArmed(true), CONFIRM_ARM_MS);
+    return () => clearTimeout(armTimer);
   }, []);
+
+  const isConfirmDisabled = !isArmed || isChoosing;
 
   return (
     <div
@@ -375,12 +405,12 @@ function ConfirmChoice({ stayTitle, isChoosing, onCancel, onConfirm }: ConfirmCh
       </p>
       <button
         onClick={onConfirm}
-        disabled={isChoosing}
+        disabled={isConfirmDisabled}
         style={{
           padding: 12,
           width: '100%',
           fontSize: 16,
-          cursor: isChoosing ? 'not-allowed' : 'pointer',
+          cursor: isConfirmDisabled ? 'not-allowed' : 'pointer',
         }}
       >
         {isChoosing ? '…' : `Ja, ${stayTitle} nehmen wir`}

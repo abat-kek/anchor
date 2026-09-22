@@ -1,18 +1,17 @@
 import { test, expect } from '@playwright/test';
-import { createClient } from '@supabase/supabase-js';
+import { admin, cleanupTrackedRows, trackGroup, trackTrip } from './support/test-supabase';
 
-const admin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
+test.afterEach(cleanupTrackedRows);
 
 test('guest proposes own date option and sees the participant list', async ({ page }) => {
   const { data: group } = await admin.from('groups').insert({ name: 'E2E-Proposal-Crew' }).select('id').single();
+  trackGroup(group!.id);
   const future = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
   const { data: trip } = await admin
     .from('trips')
     .insert({ group_id: group!.id, title: 'E2E Proposal Trip', deadline: future })
     .select('id, share_token').single();
+  trackTrip(trip!.id);
 
   await page.goto(`/join/${encodeURIComponent(trip!.share_token)}`);
   await page.getByPlaceholder('Dein Name').fill('Vorschlag-Gast');
