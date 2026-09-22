@@ -145,3 +145,90 @@ Dateien in `packages/shared` und `apps/mobile` wurden nie gelintet.
 **Nicht geprueft, weil hier nicht pruefbar:** die Migration ist nie ausgefuehrt worden, die
 E2E-Suite nie gelaufen, die Mobile-Oberflaeche nie auf einem Geraet oder Emulator gesehen, die
 Edge Function nie gestartet. Das Lesen war jeweils die einzige Pruefung.
+
+## Task 7: Ausrollen — durchgefuehrt am 2026-09-22 (Freigabe Kevin, ein Ja auf einen Warnblock)
+
+### Was gelaufen ist
+
+| Schritt | Ergebnis (selbst gemessen) |
+|---|---|
+| Sicherung DB | `/opt/anchor/backups/vor-slice2-20260922-064937.sql`, 718 098 Bytes, 242 `CREATE`-Statements, Abschlusszeile `PostgreSQL database dump complete` vorhanden, Rechte 600 |
+| Sicherung Web | `/opt/anchor/app.vor-slice2-20260922-065500`, 1,1 GB; danach 5,2 GB frei |
+| Migration 0011 | Pruefsumme gegen das Repo identisch (`7c7288bb…`), eingespielt in **einer** Transaktion mit `ON_ERROR_STOP=1`, Exitcode 0 |
+| Web-Deploy | Tarball aus `git archive HEAD` (847 721 Bytes, 190 Dateien, **keine** env-Datei, kein `node_modules`, kein `.next`), Pruefsumme nach der Uebertragung identisch |
+| Build-Log | meldet `- Environments: .env.production` **ohne** `.env.local` — die Falle aus dem 1b-Lauf ist damit geschlossen |
+| `.env.production` | unveraendert stehengeblieben (Zeitstempel vom 21.09.), weil im Repo keine env-Datei getrackt ist (`apps/web/.gitignore` ignoriert `.env*`) |
+| Ausgeliefertes Bundle | kein Treffer auf `127.0.0.1:54321` in `.next/static/` oder `.next/server/`; die Treffer aus einem ersten, zu breiten grep lagen ausschliesslich im Turbopack-**Cache** und werden nicht ausgeliefert |
+| Dienst | `anchor-web.service` neu gestartet, `active` |
+| Erreichbarkeit | `https://anchor.kek95.duckdns.org/` = 200, `/trip/<id>` = 200, `https://anchor-api.kek95.duckdns.org/rest/v1/` = 401 ohne Schluessel (erwartet) |
+
+### Die drei neuen Datenbankfunktionen, live aufgerufen
+
+Ueber die **oeffentliche API** mit dem anon-Key, also genau auf dem Weg eines Gastes. 13 Aufrufe,
+Erfolgs- **und** Fehlerfaelle:
+
+| # | Aufruf | Ergebnis |
+|---|---|---|
+| 1 | `add_accommodation_option` x2 | HTTP 200, Trip springt von `locked` auf `accommodation` |
+| 2 | dito, kaputte URL | HTTP 400 `url_invalid` |
+| 3 | dito, leerer Titel | HTTP 400 `title_required` |
+| 4 | `toggle_accommodation_vote` x4 | HTTP 200 `is_voted:true`, Stimmen 2 und 2 |
+| 5 | dito, zweites Mal | HTTP 200 `is_voted:false`, Stimmen 2 und 1 |
+| 6 | dito, Teilnehmer aus **fremdem** Trip | HTTP 400 `option_not_in_trip` |
+| 7 | `get_trip_state` | `accommodation`-Block mit genau den neun festgelegten Feldern, `vote_count` und `my_votes` korrekt |
+| 8 | `choose_accommodation`, fremder Teilnehmer | HTTP 400 `option_not_in_trip` |
+| 9 | `choose_accommodation` | HTTP 204, Trip auf `active`, `chosen_accommodation_id` stimmt |
+| 10 | zweite Kuerung | HTTP 400 `trip_not_in_accommodation_phase` |
+| 11 | Stimme nach der Kuerung | HTTP 400 `trip_not_in_accommodation_phase` |
+| 12 | Vorschlag nach der Kuerung | HTTP 400 `trip_not_in_accommodation_phase` |
+| 13 | `get_trip_state` aus Sicht des zweiten Gastes | `chosen_accommodation` gesetzt, `my_votes` korrekt |
+
+**Erster Anlauf war unbrauchbar**, und zwar wegen eines Fehlers in meinem Pruefskript, nicht in
+der Datenbank: `psql -Atc` haengt an ein `insert ... returning` noch die Statuszeile `INSERT 0 1`,
+die in der Variablen landete und jeden Folgeaufruf zerschoss. Behoben mit `-q` und `head -1`,
+Teildaten geloescht, Lauf wiederholt.
+
+### Abnahme ueber den Live-Link (`anchor.kek95.duckdns.org`, echter Browser)
+
+Beitreten → zwei Unterkuenfte vorschlagen → beide billigen → eine Stimme zuruecknehmen →
+kueren → Gegenprobe in der Datenbank (`status=active`, `chosen_accommodation_id` zeigt auf
+"Stadthotel Mitte", 1 Stimme). Vollstaendig durchgelaufen.
+
+Zwei Beobachtungen aus dem laufenden System:
+
+- **Die Gleichstandsregel E3 arbeitet sichtbar.** Bei 1:1 markierte der Stern den **aelteren**
+  Vorschlag; nach dem Zuruecknehmen der Stimme wanderte er korrekt zum fuehrenden.
+- **Die Zeitsperre der Kuerung wurde erstmals gemessen statt gerechnet.** Der "Ja"-Knopf liegt
+  nach dem Einblenden der Rueckfrage bei y 369-415 — also **genau dort**, wo der Finger den
+  Ausloeser bei y 384 getroffen hat. Die Geometrie schuetzt auf Web also tatsaechlich nicht, der
+  Befund der Schlusspruefung war richtig. Gemessen in einem Durchgang: bei 0 ms, 150 ms und
+  450 ms **gesperrt**, erst bei 850 ms scharf. Das Doppelklick-Fenster von 100-250 ms liegt
+  vollstaendig darin.
+
+### APK-Build auf CT 116
+
+| Pruefung | Ergebnis |
+|---|---|
+| Quellcode | derselbe `git archive HEAD`-Tarball wie fuer Web, Pruefsumme nach Uebertragung identisch |
+| Natives Modul | `@react-native-community/datetimepicker` 9.1.0 kompiliert, `:react-native-community_datetimepicker:assembleRelease` durchgelaufen — das war der Risikopunkt von Task 4b |
+| Artefakt | `anchor-20260922-0458.apk`, **42 606 255 Bytes** (Vorgaenger 42 422 591 — rund 184 KB mehr, passt zum neuen Modul) |
+| Fingerprint | `5bb811da8d014f0c2cf40e4ea2c61dc5aa6424c73af83751b552b4af0d4a8d7f` — deckt sich mit dem dokumentierten stabilen Keystore, also **Update ohne Deinstallation** |
+| Download | `http://192.168.2.190:8080/anchor/anchor-latest.apk` = HTTP 200, 42 606 255 Bytes, ZIP-Kopf korrekt |
+
+### Testdaten
+
+Alle in diesem Lauf angelegten Zeilen geloescht. Bestand danach: **12 Trips** (unveraendert
+gegenueber dem Stand vor dem Deploy), 0 Unterkunfts-Optionen, 0 Stimmen, keine Abnahme-Gruppen.
+
+### Was der Deploy nicht abgedeckt hat
+
+- Die Edge Function `parse-accommodation` ist **nicht** ausgerollt. Task 7 des Plans nennt sie
+  nicht, und ihr Netzwerkteil ist nie gelaufen. Kevin hat zu Recht angemerkt, dass sich das nicht
+  testen laesst, ohne sie auszurollen — meine urspruengliche Begruendung war insofern zirkulaer.
+  Richtig getrennt gehoert: **ausrollen und live pruefen** einerseits, **in die Oberflaeche
+  anbinden** andererseits. Das Ausrollen liegt ausserhalb der erteilten Freigabe und wird
+  einzeln nachgefragt.
+- Die Mobile-Oberflaeche ist auf **keinem Geraet** gesehen worden. Die APK ist gebaut und
+  signiert; ob die native Datumsauswahl und die Kuer-Rueckfrage sich auf einem Telefon so
+  verhalten wie gedacht, steht aus.
+- Die Playwright-Suite ist weiterhin nie gelaufen.
