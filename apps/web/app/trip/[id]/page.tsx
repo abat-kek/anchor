@@ -66,6 +66,10 @@ export default function TripPage() {
   const [proposeEnd, setProposeEnd] = useState('');
   const [proposeError, setProposeError] = useState<string | null>(null);
   const [isProposing, setIsProposing] = useState(false);
+  // Der eigentliche Guard gegen Doppelklick. `isProposing` allein traegt nicht: zwei
+  // Klicks im selben React-Batch lesen denselben Closure-Wert. Der State bleibt nur
+  // fuer die Anzeige (disabled, Beschriftung). Wie `isProposingRef` in der App.
+  const isProposingRef = useRef(false);
 
   // Laufende Nummer der juengsten Anfrage. get_trip_state wird vom 4-Sekunden-Poll
   // und von jeder Schreibaktion angestossen; die Antworten koennen sich ueberholen.
@@ -146,7 +150,7 @@ export default function TripPage() {
   }
 
   async function proposeDateOption() {
-    if (!participantId || isProposing) return;
+    if (!participantId || isProposingRef.current) return;
     // Lokales Kalenderdatum, nicht `toISOString()`: das rechnet in UTC und haelt
     // in Deutschland zwischen Mitternacht und 02:00 (MESZ) noch den Vortag fuer
     // heute — ein Start, den `propose_date_option` danach mit `start_in_past`
@@ -160,6 +164,7 @@ export default function TripPage() {
     setProposeError(null);
     // Guard gegen Doppelklick: propose_date_option legt pro Aufruf eine neue Zeile an,
     // ohne ihn entstehen aus einem zweiten Klick zwei identische Terminfenster.
+    isProposingRef.current = true;
     setIsProposing(true);
     try {
       const { error } = await supabase.rpc('propose_date_option', {
@@ -175,6 +180,7 @@ export default function TripPage() {
       setProposeEnd('');
       void refresh(participantId);
     } finally {
+      isProposingRef.current = false;
       setIsProposing(false);
     }
   }
