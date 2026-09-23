@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { formatIsoDateGerman, parseIsoDate, toIsoDate } from '@anchor/shared';
@@ -30,6 +30,27 @@ export function DateField({
 }: DateFieldProps) {
   const [isPickerOpen, setIsPickerOpen] = useState(false);
 
+  // Die Android-Fassung des Pickers oeffnet den Dialog neu, sobald sich
+  // `onValueChange` oder `onDismiss` aendern (Effekt-Abhaengigkeiten in
+  // datetimepicker.android.js). Inline-Funktionen waeren bei jedem Render neu —
+  // der 4-Sekunden-Poll der Trip-Seite warf den Dialog so auf den Startwert
+  // zurueck, waehrend man darin blaetterte. Deshalb stabile Callbacks, und das
+  // `onChange` des Aufrufers laeuft ueber einen Ref statt ueber die Abhaengigkeiten.
+  const onChangeRef = useRef(onChange);
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
+
+  const handleValueChange = useCallback((_event: unknown, selectedDate: Date) => {
+    // Android blendet den Dialog selbst aus, die Komponente muss danach
+    // aber abgeraeumt werden, sonst oeffnet sie sich beim naechsten
+    // Render erneut.
+    setIsPickerOpen(false);
+    onChangeRef.current(toIsoDate(selectedDate));
+  }, []);
+
+  const handleDismiss = useCallback(() => setIsPickerOpen(false), []);
+
   const displayValue = formatIsoDateGerman(value);
   // Ohne eigene Wahl startet der Dialog auf der Untergrenze — nie auf einem
   // Tag, den der Nutzer ohnehin nicht nehmen darf.
@@ -55,14 +76,8 @@ export function DateField({
           value={pickerValue}
           mode="date"
           minimumDate={minimumDate}
-          onValueChange={(_event, selectedDate) => {
-            // Android blendet den Dialog selbst aus, die Komponente muss danach
-            // aber abgeraeumt werden, sonst oeffnet sie sich beim naechsten
-            // Render erneut.
-            setIsPickerOpen(false);
-            onChange(toIsoDate(selectedDate));
-          }}
-          onDismiss={() => setIsPickerOpen(false)}
+          onValueChange={handleValueChange}
+          onDismiss={handleDismiss}
         />
       )}
     </>
