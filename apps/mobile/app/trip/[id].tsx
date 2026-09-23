@@ -276,11 +276,13 @@ export default function TripStatus() {
           style={[styles.shareButton, isShareLoading && styles.shareButtonDisabled]}
           onPress={handleShareLink}
           disabled={isShareLoading}
+          accessibilityRole="button"
+          accessibilityLabel="Freunde einladen"
         >
           {isShareLoading ? (
             <ActivityIndicator color="#fff" size={20} />
           ) : (
-            <Text style={styles.shareButtonText}>👥</Text>
+            <Text style={styles.shareButtonText}>Freunde einladen</Text>
           )}
         </Pressable>
       </View>
@@ -380,15 +382,15 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   headline: { fontSize: 22, fontWeight: '700', color: '#fff', flex: 1 },
   shareButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    minHeight: 44,
+    paddingHorizontal: 14,
+    borderRadius: 12,
     backgroundColor: '#2f6fed',
     alignItems: 'center',
     justifyContent: 'center',
   },
   shareButtonDisabled: { opacity: 0.5 },
-  shareButtonText: { fontSize: 20 },
+  shareButtonText: { color: '#fff', fontSize: 14, fontWeight: '700' },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: '#fff', marginTop: 8 },
   optionRow: { gap: 8 },
   optionDate: { color: '#fff', fontSize: 14 },

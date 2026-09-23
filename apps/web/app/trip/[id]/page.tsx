@@ -266,15 +266,16 @@ export default function TripPage() {
         <button
           onClick={handleShareLink}
           disabled={isShareLoading}
-          title="Freunde einladen"
           style={{
-            width: 44,
-            height: 44,
-            borderRadius: '50%',
+            minHeight: 44,
+            padding: '0 14px',
+            borderRadius: 12,
             border: 'none',
             backgroundColor: '#2f6fed',
             color: '#fff',
-            fontSize: 20,
+            fontSize: 14,
+            fontWeight: 700,
+            whiteSpace: 'nowrap',
             cursor: isShareLoading ? 'not-allowed' : 'pointer',
             opacity: isShareLoading ? 0.5 : 1,
             display: 'flex',
@@ -282,7 +283,7 @@ export default function TripPage() {
             justifyContent: 'center',
           }}
         >
-          {isShareLoading ? '…' : '👥'}
+          {isShareLoading ? '…' : 'Freunde einladen'}
         </button>
       </div>
 
