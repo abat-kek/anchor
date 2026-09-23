@@ -3,6 +3,8 @@ import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from '
 import { useFocusEffect, useRouter } from 'expo-router';
 import { supabase } from '../src/lib/supabase';
 import { getParticipant, listTripIds } from '../src/lib/participant-store';
+import { useUpdateState } from '../src/lib/app-update';
+import { UpdateBanner } from '../src/features/update/UpdateBanner';
 
 interface TripSummary {
   id: string;
@@ -27,6 +29,7 @@ export default function HomeScreen() {
   const [trips, setTrips] = useState<TripSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<LoadError | null>(null);
+  const updateState = useUpdateState();
 
   const loadTrips = useCallback(async (isActive: () => boolean) => {
     try {
@@ -72,6 +75,7 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.container}>
+      <UpdateBanner state={updateState} />
       <Text style={styles.logo}>⚓ Anchor</Text>
       <Text style={styles.tagline}>Der Trip, der endlich stattfindet.</Text>
 

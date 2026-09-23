@@ -1,0 +1,16 @@
+// [VERMUTUNG: Form entspricht der Vorlage von create-expo-module fuer SDK 57 - erster Beleg ist der Build auf CT 116]
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.anchorupdater'
+version = '0.1.0'
+
+android {
+  namespace "expo.modules.anchorupdater"
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+  }
+}

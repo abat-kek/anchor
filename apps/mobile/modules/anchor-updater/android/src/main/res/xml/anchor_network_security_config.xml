@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Anchor spricht sonst nur HTTPS mit oeffentlichem Zertifikat (Supabase, Web) - deshalb
+         bewusst keine base-config mit Klartext. Achtung: sobald diese Datei gesetzt ist,
+         ignoriert Android usesCleartextTraffic aus dem Manifest. -->
+
+    <!-- apk.kek.de liefert mit Caddys interner CA aus, die nur als Nutzer-CA auf dem Geraet
+         liegt. Ab Android 7 vertrauen Apps Nutzer-CAs nicht mehr von selbst; ohne diesen
+         Eintrag scheitert der Update-Abruf an TLS. Bewusst nur fuer diese eine Domain. -->
+    <domain-config>
+        <domain includeSubdomains="false">apk.kek.de</domain>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </domain-config>
+</network-security-config>
