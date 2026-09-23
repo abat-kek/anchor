@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   View,
@@ -14,6 +15,7 @@ import { AccommodationSection } from '../../src/features/trip/AccommodationSecti
 import { DateField } from '../../src/features/trip/DateField';
 import {
   EMPTY_ACCOMMODATION_STATE,
+  buildJoinUrl,
   parseIsoDate,
   startOfToday,
   toIsoDate,
@@ -24,6 +26,7 @@ import {
 } from '@anchor/shared';
 
 const POLL_MS = 4000;
+const WEB_BASE = process.env.EXPO_PUBLIC_WEB_BASE_URL ?? 'https://anchor.kek95.duckdns.org';
 
 // Ab 'locked' ist der Termin entschieden; die Terminabstimmung bleibt in allen
 // Folgestatus geschlossen, sonst waere sie in der Unterkunftsphase wieder offen.
@@ -67,12 +70,16 @@ export default function TripStatus() {
   const [proposeStart, setProposeStart] = useState('');
   const [proposeEnd, setProposeEnd] = useState('');
   const [proposeError, setProposeError] = useState<string | null>(null);
+  const [isShareLoading, setIsShareLoading] = useState(false);
 
   // Laufende Nummer der juengsten Anfrage. get_trip_state wird vom 4-Sekunden-Poll
   // und von jeder Schreibaktion angestossen; die Antworten koennen sich ueberholen.
   // Ohne diesen Zaehler wirft eine verspaetete Poll-Antwort, die vor einer Stimmabgabe
   // losgeschickt wurde, das frische Ergebnis wieder auf den alten Stand zurueck.
   const latestRefreshRef = useRef(0);
+
+  // Guard gegen Doppeltipp beim Einladen. RPCs sind nicht idempotent.
+  const isShareLinkRef = useRef(false);
 
   // Guard gegen Doppeltipp beim Vorschlagen. Nicht `isSubmitting`: beide
   // onPress-Handler stammen aus demselben Render und lesen denselben
@@ -201,6 +208,28 @@ export default function TripStatus() {
     }
   }
 
+  async function handleShareLink() {
+    if (!participantId || isShareLinkRef.current) return;
+    setActionError(null);
+    isShareLinkRef.current = true;
+    setIsShareLoading(true);
+    try {
+      const { data, error } = await supabase.rpc('get_trip_share_token', {
+        p_participant_id: participantId,
+      });
+      if (error) {
+        setActionError(translateRpcError(error.message));
+        return;
+      }
+      const shareToken = data as string;
+      const url = buildJoinUrl(WEB_BASE, shareToken);
+      await Share.share({ message: `Bist du dabei? ${url}` });
+    } finally {
+      isShareLinkRef.current = false;
+      setIsShareLoading(false);
+    }
+  }
+
   if (errorMessage) {
     return (
       <View style={styles.container}>
@@ -230,18 +259,31 @@ export default function TripStatus() {
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.scrollContainer}>
-      {isLocked ? (
-        <Text style={styles.headline}>
-          🎉 Termin steht!
-          {state.locked_option
-            ? ` ${state.locked_option.start_date} – ${state.locked_option.end_date}`
-            : ''}
-        </Text>
-      ) : (
-        <Text style={styles.headline}>
-          {state.committed_count}/{state.total_participants} dabei
-        </Text>
-      )}
+      <View style={styles.headerRow}>
+        {isLocked ? (
+          <Text style={styles.headline}>
+            🎉 Termin steht!
+            {state.locked_option
+              ? ` ${state.locked_option.start_date} – ${state.locked_option.end_date}`
+              : ''}
+          </Text>
+        ) : (
+          <Text style={styles.headline}>
+            {state.committed_count}/{state.total_participants} dabei
+          </Text>
+        )}
+        <Pressable
+          style={[styles.shareButton, isShareLoading && styles.shareButtonDisabled]}
+          onPress={handleShareLink}
+          disabled={isShareLoading}
+        >
+          {isShareLoading ? (
+            <ActivityIndicator color="#fff" size={20} />
+          ) : (
+            <Text style={styles.shareButtonText}>👥</Text>
+          )}
+        </Pressable>
+      </View>
 
       {state.options.length > 0 && <Text style={styles.sectionTitle}>Wann kannst du?</Text>}
       {state.options.map((option) => (
@@ -335,7 +377,18 @@ const styles = StyleSheet.create({
   container: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0b0b0f' },
   screen: { flex: 1, backgroundColor: '#0b0b0f' },
   scrollContainer: { padding: 24, gap: 16, paddingBottom: 48 },
-  headline: { fontSize: 22, fontWeight: '700', color: '#fff' },
+  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  headline: { fontSize: 22, fontWeight: '700', color: '#fff', flex: 1 },
+  shareButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#2f6fed',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  shareButtonDisabled: { opacity: 0.5 },
+  shareButtonText: { fontSize: 20 },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: '#fff', marginTop: 8 },
   optionRow: { gap: 8 },
   optionDate: { color: '#fff', fontSize: 14 },

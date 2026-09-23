@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase';
 import { getParticipant } from '@/lib/participant-store';
 import {
   EMPTY_ACCOMMODATION_STATE,
+  buildJoinUrl,
   startOfToday,
   toIsoDate,
   translateRpcError,
@@ -66,10 +67,14 @@ export default function TripPage() {
   const [proposeEnd, setProposeEnd] = useState('');
   const [proposeError, setProposeError] = useState<string | null>(null);
   const [isProposing, setIsProposing] = useState(false);
+  const [isShareLoading, setIsShareLoading] = useState(false);
+  const [shareCopiedMessage, setShareCopiedMessage] = useState<string | null>(null);
   // Der eigentliche Guard gegen Doppelklick. `isProposing` allein traegt nicht: zwei
   // Klicks im selben React-Batch lesen denselben Closure-Wert. Der State bleibt nur
   // fuer die Anzeige (disabled, Beschriftung). Wie `isProposingRef` in der App.
   const isProposingRef = useRef(false);
+  // Guard gegen Doppeltipp beim Einladen
+  const isShareLinkRef = useRef(false);
 
   // Laufende Nummer der juengsten Anfrage. get_trip_state wird vom 4-Sekunden-Poll
   // und von jeder Schreibaktion angestossen; die Antworten koennen sich ueberholen.
@@ -185,6 +190,49 @@ export default function TripPage() {
     }
   }
 
+  async function handleShareLink() {
+    if (!participantId || isShareLinkRef.current) return;
+    setActionError(null);
+    setShareCopiedMessage(null);
+    isShareLinkRef.current = true;
+    setIsShareLoading(true);
+    try {
+      const { data, error } = await supabase.rpc('get_trip_share_token', {
+        p_participant_id: participantId,
+      });
+      if (error) {
+        setActionError(translateRpcError(error.message));
+        return;
+      }
+      const shareToken = data as string;
+      const url = buildJoinUrl(window.location.origin, shareToken);
+
+      // Versuchen Sie, die Share-API zu verwenden
+      if (navigator.share) {
+        try {
+          await navigator.share({ text: `Bist du dabei? ${url}` });
+        } catch (shareError: unknown) {
+          // Wenn der Nutzer den Share-Dialog abbricht (AbortError), ist das kein Fehler
+          if (!(shareError instanceof Error && shareError.name === 'AbortError')) {
+            throw shareError;
+          }
+        }
+      } else {
+        // Fallback auf Clipboard-Kopieren
+        try {
+          await navigator.clipboard.writeText(url);
+          setShareCopiedMessage('Link kopiert! 📋');
+          setTimeout(() => setShareCopiedMessage(null), 2000);
+        } catch {
+          setActionError('Link konnte nicht kopiert werden.');
+        }
+      }
+    } finally {
+      isShareLinkRef.current = false;
+      setIsShareLoading(false);
+    }
+  }
+
   const wrap = { padding: 24, maxWidth: 480, margin: '0 auto', fontFamily: 'system-ui' } as const;
 
   if (!participantId) {
@@ -213,7 +261,30 @@ export default function TripPage() {
 
   return (
     <main style={wrap}>
-      <h1>{state?.trip?.title ?? 'Der Trip'}</h1>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 16 }}>
+        <h1 style={{ margin: 0 }}>{state?.trip?.title ?? 'Der Trip'}</h1>
+        <button
+          onClick={handleShareLink}
+          disabled={isShareLoading}
+          title="Freunde einladen"
+          style={{
+            width: 44,
+            height: 44,
+            borderRadius: '50%',
+            border: 'none',
+            backgroundColor: '#2f6fed',
+            color: '#fff',
+            fontSize: 20,
+            cursor: isShareLoading ? 'not-allowed' : 'pointer',
+            opacity: isShareLoading ? 0.5 : 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          {isShareLoading ? '…' : '👥'}
+        </button>
+      </div>
 
       {isLocked ? (
         <p style={{ fontWeight: 700, fontSize: 18 }}>
@@ -227,6 +298,8 @@ export default function TripPage() {
           {state?.committed_count ?? 0}/{state?.total_participants ?? 0} dabei
         </p>
       )}
+
+      {shareCopiedMessage && <p style={{ color: 'green' }}>{shareCopiedMessage}</p>}
 
       <h2>Wann kannst du?</h2>
       {(state?.options ?? []).map((o) => (
