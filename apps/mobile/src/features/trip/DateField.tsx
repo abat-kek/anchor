@@ -75,6 +75,11 @@ export function DateField({
         <DateTimePicker
           value={pickerValue}
           mode="date"
+          // Material-3-Dialog statt des Framework-Dialogs: auf einem Galaxy S23
+          // (One UI) sprang der Framework-Dialog nach etwa 2 s auf den Startwert
+          // zurueck, auch mit stabilen Callbacks. Braucht ein Material-3-App-Theme,
+          // das plugins/with-material-theme.js setzt.
+          design="material"
           minimumDate={minimumDate}
           onValueChange={handleValueChange}
           onDismiss={handleDismiss}

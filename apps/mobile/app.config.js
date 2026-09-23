@@ -18,5 +18,5 @@ module.exports = ({ config }) => ({
   ...config,
   version: process.env.ANCHOR_VERSION_NAME || '0.0.0-lokal',
   android: { ...config.android, versionCode: readVersionCode() },
-  plugins: [...(config.plugins ?? []), './plugins/with-anchor-updater'],
+  plugins: [...(config.plugins ?? []), './plugins/with-anchor-updater', './plugins/with-material-theme'],
 });
