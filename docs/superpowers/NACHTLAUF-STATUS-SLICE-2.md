@@ -133,7 +133,7 @@ abgelaufener Deadline, nicht nur den Testtrip; das nimmt kein `afterEach` zuruec
 **Paritaetsluecke, vorbestehend:** `proposeDateOption` in `apps/web/app/trip/[id]/page.tsx` nutzt
 `isProposing` als State statt als Ref — zwei Klicks im selben React-Batch lesen denselben
 Closure-Wert. Die App loest genau das mit `isProposingRef`. Stammt aus `27fa301`, nicht aus
-dieser Scheibe.
+dieser Scheibe. **Erledigt am 2026-09-23** mit `32e729a`, siehe Nachtrag am Ende.
 
 **Kleinkram, bewusst liegengelassen:** die 600 ms der Web-Zeitsperre sind gerechnet, nicht
 gemessen; die E2E-Umgebungssperre prueft nicht zwingend dieselbe URL, die der `next dev`-Server
@@ -232,3 +232,33 @@ gegenueber dem Stand vor dem Deploy), 0 Unterkunfts-Optionen, 0 Stimmen, keine A
   signiert; ob die native Datumsauswahl und die Kuer-Rueckfrage sich auf einem Telefon so
   verhalten wie gedacht, steht aus.
 - Die Playwright-Suite ist weiterhin nie gelaufen.
+
+## Nachtrag 2026-09-23: Doppelklick-Guard im Web (`32e729a`)
+
+Die Paritaetsluecke aus den offenen Punkten ist geschlossen: `proposeDateOption` sperrt ueber
+`isProposingRef`, der State `isProposing` steuert nur noch die Anzeige.
+
+**Gemessen statt hergeleitet**, lokal im Browser gegen einen Attrappen-Server auf
+`127.0.0.1:54321` (zaehlt `propose_date_option`, antwortet nach 500 ms), ohne Live-Datenbank:
+
+| Ausloeser | alter Code | neuer Code |
+|---|---|---|
+| zwei `click()` im selben Event-Loop-Takt | **2** Aufrufe | 1 |
+| zwei Klicks mit einem Takt Abstand | 1 | 1 |
+| echter Maus-Doppelklick | nicht gemessen | 1 |
+
+Die Luecke war also real, aber eng: schon ein Takt Abstand reicht, damit React den Knopf per
+`disabled` sperrt.
+
+**Pruefungen:** `turbo run typecheck test --force` 5/5 gruen, 150 Tests. Vorher lokal
+`pnpm install` noetig, weil `@playwright/test` und `@react-native-community/datetimepicker` fehlten.
+`pnpm lint` weiterhin genau die drei bekannten Altlasten.
+
+**Ausgerollt auf CT 113** (Freigabe Kevin): Tarball aus `git archive HEAD`, Pruefsumme
+`e7d4d19a…d002` beidseitig identisch, ueber `/opt/anchor/app` entpackt, `.env.production`
+unveraendert, Build-Log `Environments: .env.production` ohne `.env.local`, neuer `BUILD_ID`,
+kein `127.0.0.1:54321` im Bundle, Dienst `active`, Startseite/Trip 200, API 401. Keine Migration.
+Sicherung: `/opt/anchor/app.vor-refguard-20260923-215016` (1,2 GB).
+
+**Nicht geprueft:** der Doppelklick ueber den Live-Link; die Mobile-App ist unveraendert, keine
+neue APK.
