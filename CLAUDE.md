@@ -75,10 +75,11 @@ Warnblock, ein Ja, dann ohne weitere Rückfrage durchziehen. Vor einer Migration
 `/opt/anchor/backups/` (läuft nur **im** Container: `docker exec supabase-db pg_dump`, auf dem
 CT-Host selbst ist keiner installiert).
 
-Deploy-Tarball **immer** mit `git archive HEAD` bauen, nie mit `tar .` aus dem Arbeitsverzeichnis —
-sonst reist die git-ignorierte `apps/web/.env.local` mit und überschreibt die
-Produktionskonfiguration. Kontrolle: Das Build-Log muss `Environments: .env.production` melden,
-ohne `.env.local`.
+Deploy-Tarball **immer** mit `git -c core.autocrlf=false archive HEAD` bauen, nie mit `tar .` aus
+dem Arbeitsverzeichnis — sonst reist die git-ignorierte `apps/web/.env.local` mit und überschreibt
+die Produktionskonfiguration. Kontrolle: Das Build-Log muss `Environments: .env.production` melden,
+ohne `.env.local`. Das `-c core.autocrlf=false` ist nötig, weil `git archive` unter Windows sonst
+CRLF-Zeilenenden in den Tarball schreibt (siehe BEST-PRACTICES.md, Deploy-Checkliste Punkt 4).
 
 ## Arbeitsweise, die sich hier bewährt hat
 

@@ -121,8 +121,13 @@ Teilnehmer entsteht, diese Kette zuerst auflösen.
 3. **Jede neue Datenbankfunktion live aufrufen**, Erfolgs- **und** erwarteter Fehlerfall, über die
    **öffentliche API mit dem anon-Key** statt über `psql`. Das prüft die `grant`s gleich mit. In
    Scheibe 2 waren das 13 Aufrufe; sie haben bestätigt, was kein Typecheck sehen kann.
-4. **Deploy-Tarball mit `git archive HEAD`**, Prüfsumme beidseitig, über das bestehende
-   Verzeichnis entpacken (die `.env.production` liegt nur auf dem Server).
+4. **Deploy-Tarball mit `git -c core.autocrlf=false archive HEAD`**, Prüfsumme beidseitig, über
+   das bestehende Verzeichnis entpacken (die `.env.production` liegt nur auf dem Server). Ohne
+   `core.autocrlf=false` schreibt `git archive` unter Windows **CRLF** in den Tarball — gemessen
+   am 23.09.2026 an Migration 0012, deren Prüfsumme auf dem Server vom Commit abwich und erst
+   nach `tr -d '\r'` stimmte. Node und Gradle stört das nicht, Shell-Skripte schon. Die
+   Prüfsumme einer Migration deshalb **vor** dem Einspielen gegen `git show HEAD:<pfad> |
+   sha256sum` vergleichen, nicht gegen die Datei im Windows-Arbeitsverzeichnis.
 5. **Build-Log auf `Environments: .env.production`** prüfen, ohne `.env.local`.
 6. **Abnahme über den Live-Link im echten Browser**, nicht nur über die API — und dabei die Dinge
    messen, die sich messen lassen (Pixelpositionen, Sperrzeiten) statt sie aus dem Code zu lesen.

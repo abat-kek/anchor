@@ -262,3 +262,17 @@ Sicherung: `/opt/anchor/app.vor-refguard-20260923-215016` (1,2 GB).
 
 **Nicht geprueft:** der Doppelklick ueber den Live-Link; die Mobile-App ist unveraendert, keine
 neue APK.
+
+## Nachtrag 2026-09-23 (Abend): Selbstupdate, Einladen aus dem Trip, Date-Picker
+
+Auf Branch `worktree-anchor-selbstupdate`, danach nach master gemergt.
+
+| Thema | Stand | Commits |
+|---|---|---|
+| Selbstupdate ueber apk.kek.de (HEIMAPPS-SELBSTUPDATE.md) | gebaut, Review mit einem HIGH-Befund (networkSecurityConfig brach Debug-Builds) behoben; neuer Schluessel `kek-release.jks`/Alias `anchor`, Fingerabdruck in `build.sh` geprueft | `b17b6fc`, `4ce28dc`, `45aafa3` |
+| Link aus dem Trip teilen | Migration 0012 `get_trip_share_token` live eingespielt und live aufgerufen (gueltig: 200 + Token, unbekannt: 400 `invalid_participant`); Knopf "Freunde einladen" in App und Web | `944c03a`, `3a362eb`, `08816e8` |
+| Date-Picker springt zurueck | Stabile Callbacks (`0828766`) halfen **nicht**: auf dem S23 sprang der Dialog weiter nach ~2 s, auf der Webseite nicht. Ursache nicht belegt. Versuch: Material-3-Dialog + Material-3-App-Theme | `f458990` |
+
+Ausgerollt: Web auf CT 113 (Sicherung `app.vor-teilen-20260923-214124`), APK 1435542 auf CT 116.
+**Nicht abgenommen am Geraet:** Update-Banner/Installation, Material-Dialog, Einladen-Knopf in der App.
+Neu gelernt: `git archive` unter Windows schreibt CRLF - siehe BEST-PRACTICES.md, Punkt 4.
