@@ -36,3 +36,13 @@ export {
 // ueber `@anchor/shared`. Web/Mobile brauchen diese Module nicht. Getestet
 // werden sie ueber `packages/shared/test/*.test.ts`, die ebenfalls direkt aus
 // `../src/domain/...` importieren — auch das braucht keinen Re-Export hier.
+export {
+  UPDATE_CHECK_INTERVAL_MS,
+  UpdateController,
+  evaluateUpdate,
+  parseUpdateInfo,
+  type UpdateEvaluation,
+  type UpdateInfo,
+  type UpdateSource,
+  type UpdateState,
+} from './domain/app-update';
