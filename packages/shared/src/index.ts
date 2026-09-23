@@ -7,6 +7,7 @@ export { computeBalances, simplifyDebts } from './domain/balances';
 export { canSendNudge } from './domain/nudge';
 export { validateDateOptionInput, type DateOptionValidation } from './domain/date-options';
 export { formatIsoDateGerman, parseIsoDate, startOfToday, toIsoDate } from './domain/iso-date';
+export { buildJoinUrl } from './domain/join-url';
 export { resolveAccommodationWinner, type AccommodationTally } from './domain/accommodation';
 export {
   EMPTY_ACCOMMODATION_STATE,

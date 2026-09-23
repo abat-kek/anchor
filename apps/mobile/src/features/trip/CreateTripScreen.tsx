@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { buildJoinUrl } from '@anchor/shared';
 import { supabase } from '../../lib/supabase';
 import { saveParticipant } from '../../lib/participant-store';
 
@@ -51,7 +52,7 @@ export function CreateTripScreen() {
 
   async function shareLink() {
     if (!shareToken) return;
-    const url = `${WEB_BASE}/join/${encodeURIComponent(shareToken)}`;
+    const url = buildJoinUrl(WEB_BASE, shareToken);
     await Share.share({ message: `Bist du dabei? ${url}` });
   }
 
